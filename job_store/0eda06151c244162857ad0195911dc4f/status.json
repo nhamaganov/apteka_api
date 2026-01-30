@@ -1,0 +1,15 @@
+{
+  "job_id": "0eda06151c244162857ad0195911dc4f",
+  "status": "queued",
+  "progress": {
+    "total": 0,
+    "processed": 0,
+    "matched": 0,
+    "not_found": 0,
+    "failed": 0
+  },
+  "created_at": "2026-01-30T08:29:17.901328+00:00",
+  "started_at": null,
+  "finished_at": null,
+  "error": null
+}
