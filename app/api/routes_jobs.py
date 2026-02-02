@@ -1,11 +1,14 @@
-import uuid
-
-from fastapi import APIRouter, UploadFile, File, HTTPException
 from datetime import datetime, timezone
 from pathlib import Path
+import uuid
 
-from app.core.storage import ensure_job_store, job_dir, upload_path, status_path, result_path, write_json, read_json
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request
+
+from app.core.storage import (
+    ensure_job_store, job_dir, upload_path, status_path, result_path, write_json, read_json, queries_path
+)
 from app.core.models import JobProgress, JobStatus
+from app.utils.xls import extract_queries_from_excel
 
 
 router = APIRouter()
@@ -16,7 +19,7 @@ def now_iso() -> str:
 
 
 @router.post("/", response_model=JobStatus)
-async def create_job(file: UploadFile = File(...)):
+async def create_job(request: Request, file: UploadFile = File(...)):
     ensure_job_store()
 
     ext = Path(file.filename).suffix.lower()
@@ -30,17 +33,26 @@ async def create_job(file: UploadFile = File(...)):
     content = await file.read()
     dst.write_bytes(content)
 
+    try:
+        queries = extract_queries_from_excel(str(dst))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse excel: {e}")
+    
+    write_json(queries_path(job_id), {"queries": queries})
+
+
     status = JobStatus(
         job_id=job_id,
         status="queued",
-        progress=JobProgress(),
+        progress=JobProgress(total=len(queries)),
         created_at=now_iso(),
     )
 
     write_json(status_path(job_id), status.model_dump())
-
     write_json(result_path(job_id), {"job_id": job_id, "ready": False, "items": []})
     
+    await request.app.state.queue.enqueue(job_id)
+
     return status
 
 
