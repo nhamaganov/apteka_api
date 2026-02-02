@@ -135,3 +135,5 @@ def is_name_match(xls_name: str, site_title: str,
 
     score2 = fuzz.partial_ratio(a, b)
     return score2 >= min_partial
+
+
