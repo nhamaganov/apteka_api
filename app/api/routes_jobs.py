@@ -1,6 +1,6 @@
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-import uuid
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 

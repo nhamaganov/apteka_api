@@ -41,3 +41,7 @@ def read_json(path: Path) -> Dict[str, Any]:
 
 def queries_path(job_id: str) -> Path:
     return job_dir(job_id) / "queries.json"
+
+
+def result_csv_path(job_id: str) -> Path:
+    return job_dir(job_id) / "result.scv"
