@@ -3,9 +3,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from app.core.storage import (
-    ensure_job_store, job_dir, upload_path, status_path, result_path, write_json, read_json, queries_path
+    ensure_job_store, job_dir, result_csv_path, upload_path, status_path, result_path, write_json, read_json, queries_path
 )
 from app.core.models import JobProgress, JobStatus
 from app.utils.xls import extract_queries_from_excel
@@ -16,7 +17,6 @@ router = APIRouter()
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
 
 @router.post("/", response_model=JobStatus)
 async def create_job(request: Request, file: UploadFile = File(...)):
@@ -56,6 +56,7 @@ async def create_job(request: Request, file: UploadFile = File(...)):
     return status
 
 
+
 @router.get("/{job_id}", response_model=JobStatus)
 def get_job_status(job_id: str):
     p = status_path(job_id)
@@ -71,3 +72,24 @@ def get_job_result(job_id: str):
     if not p.exists():
         raise HTTPException(status_code=404, detail="Job not found")
     return read_json(p)
+
+
+@router.get("/{job_id}/download")
+def download_job_csv(job_id: str):
+    st_path = status_path(job_id)
+    if not st_path.exists():
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    status = read_json(st_path)
+    if status.get("status") not in {"done", "failed"}:
+        raise HTTPException(status_code=409, detail="Result not ready yet")
+    
+    p = result_csv_path(job_id)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="CSV not found")
+    
+    return FileResponse(
+        path=str(p),
+        media_type="text/csv",
+        filename=f"{job_id}.csv"
+    )

@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
 
     # shutdown
     app.state.stop_event.set()
-    app.statie.worker_task.cancel()
+    app.state.worker_task.cancel()
     try:
         await app.state.worker_task
     except Exception:
