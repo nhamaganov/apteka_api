@@ -16,5 +16,5 @@ def get_float(name: str, default: float) -> float:
     
 
 PARSE_TIMEOUT = get_int("PARSE_TIMEOUT", 10)
-PARSE_MAX_RETRIES = get_int("PARSE_MAX_RETRIES", 5)
-PARSE_PAUSE = get_float("PARSE_PAUSE", 0.6)
+PARSE_MAX_RETRIES = get_int("PARSE_MAX_RETRIES", 7)
+PARSE_PAUSE = get_float("PARSE_PAUSE", 3)

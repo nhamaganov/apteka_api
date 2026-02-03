@@ -56,7 +56,6 @@ async def create_job(request: Request, file: UploadFile = File(...)):
     return status
 
 
-
 @router.get("/{job_id}", response_model=JobStatus)
 def get_job_status(job_id: str):
     p = status_path(job_id)

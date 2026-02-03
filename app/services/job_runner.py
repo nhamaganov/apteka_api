@@ -37,7 +37,7 @@ async def process_job(job_id: str) -> None:
         close_modal_if_any(driver, timeout=2)
 
         for q in queries:
-            outcome, items = await asyncio.to_thread(parse_one_query, driver, q, PARSE_TIMEOUT, PARSE_MAX_RETRIES)
+            outcome, items = parse_one_query(driver, q, PARSE_TIMEOUT, PARSE_MAX_RETRIES)
 
             if outcome == "matched":
                 status["progress"]["matched"] += 1
