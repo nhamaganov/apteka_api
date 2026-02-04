@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Job {{ job_id }}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="wrap">
+    <h1>Задача</h1>
+    <div class="mono">job_id: {{ job_id }}</div>
+
+    <div id="status" class="box">status: ...</div>
+
+    <div class="box">
+      <div>progress: <span id="progressText">0/0</span></div>
+      <div class="bar">
+        <div id="barFill" class="barFill" style="width:0%"></div>
+      </div>
+      <div class="grid">
+        <div>matched: <b id="matched">0</b></div>
+        <div>not_found: <b id="notFound">0</b></div>
+        <div>failed: <b id="failed">0</b></div>
+      </div>
+    </div>
+
+    <div class="box">
+      <a id="download" class="btn disabled" href="#" aria-disabled="true">Скачать CSV</a>
+      <a class="btn" href="/">Новая загрузка</a>
+    </div>
+  </div>
+
+  <script>
+    window.JOB_ID = "{{ job_id }}";
+  </script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Apteka Parser</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="wrap">
+    <h1>Загрузка файла</h1>
+
+    <form action="/upload" method="post" enctype="multipart/form-data">
+      <input type="file" name="file" accept=".xls,.xlsx" required />
+      <button type="submit">Запустить парсинг</button>
+    </form>
+
+    <p class="hint">
+      После загрузки откроется страница с прогрессом. По завершении можно скачать CSV.
+    </p>
+  </div>
+</body>
+</html>

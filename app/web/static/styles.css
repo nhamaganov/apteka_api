@@ -1,0 +1,15 @@
+body { font-family: system-ui, Arial, sans-serif; margin: 0; padding: 0; }
+.wrap { max-width: 720px; margin: 32px auto; padding: 0 16px; }
+h1 { margin: 0 0 16px; }
+.box { border: 1px solid #ddd; border-radius: 10px; padding: 12px; margin: 12px 0; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color:#444; margin: 6px 0 14px; }
+.hint { color: #666; }
+
+.bar { height: 10px; background: #eee; border-radius: 999px; overflow: hidden; margin-top: 8px; }
+.barFill { height: 100%; background: #3b82f6; width: 0%; transition: width .2s; }
+
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 10px; }
+
+.btn { display: inline-block; padding: 10px 12px; border-radius: 10px; border: 1px solid #ddd; text-decoration: none; margin-right: 8px; }
+.btn:hover { background: #f6f6f6; }
+.btn.disabled { opacity: 0.5; pointer-events: none; }

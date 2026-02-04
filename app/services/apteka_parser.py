@@ -12,7 +12,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, WebDriverException
 
-
 from app.utils.match import is_name_match, normalize
 
 
@@ -65,12 +64,14 @@ def make_driver() -> webdriver.Chrome:
 
 def is_unexpected_error_page(driver) -> bool:
     """Проверка страницы на ошибку"""
-    return bool(driver.find_elements(By.CSS_SELECTOR, ".UnexpectedError__image"))
+    els = driver.find_elements(By.CSS_SELECTOR, ".UnexpectedError__image")
+    return any(el.is_displayed() for el in els)
 
 
 def is_empty_results_page(driver) -> bool:
     """Проверка"""
-    return bool(driver.find_elements(By.CSS_SELECTOR, ".CardListEmpty, [class*='CardListEmpty']"))
+    els = driver.find_elements(By.CSS_SELECTOR, ".CardListEmpty")
+    return any(el.is_displayed() for el in els)
 
 
 def is_product_page(driver) -> bool:
@@ -79,6 +80,17 @@ def is_product_page(driver) -> bool:
 
 def is_search_results_page(driver) -> bool:
     return bool(driver.find_elements(By.CSS_SELECTOR, ".catalog-card.card-flex"))
+
+
+def get_first_card_title(driver) -> str:
+    cards = driver.find_elements(By.CSS_SELECTOR, ".catalog-card.card-flex")
+    if not cards:
+        return ""
+    try:
+        title_el = cards[0].find_element(By.CSS_SELECTOR, "span.catalog-card__name.emphasis")
+        return (title_el.get_attribute("title") or title_el.text or "").strip()
+    except Exception:
+        return ""
 
 
 def has_result(driver) -> bool:
@@ -152,15 +164,32 @@ def run_search_with_retry(driver, query, timeout, max_retries) -> None:
     """Поиск товара с перезагрузкой в случае ошибки"""
     for attempt in range(1, max_retries + 1):
         try:
+            prev_first = get_first_card_title(driver)
+
             set_search_query(driver, query, timeout=timeout)
             find_clickable(driver, By.CSS_SELECTOR, ".SearchBox__input-submit", timeout=timeout).click()
-            
+
             end = time.time() + timeout
             while time.time() < end:
                 if is_unexpected_error_page(driver):
                     raise RuntimeError("UnexpectedError page")
-                if has_result(driver):
+                if is_product_page(driver):
                     return
+                if is_empty_results_page(driver):
+                    return
+
+                cards = driver.find_elements(By.CSS_SELECTOR, ".catalog-card.card-flex")
+                if cards:
+                    curr_first = get_first_card_title(driver)
+
+                    # цена в первой карточке
+                    price_els = cards[0].find_elements(By.CSS_SELECTOR, "span.moneyprice__content")
+                    has_price = bool(price_els and price_els[0].text.strip())
+
+                    # ✅ считаем готово только если первая карточка поменялась (или раньше не было)
+                    if has_price and (prev_first == "" or curr_first != prev_first):
+                        return
+
                 time.sleep(0.2)
         
             raise TimeoutException("No result within timeout")
@@ -186,13 +215,13 @@ def parse_product_page(driver, query, timeout) -> List[Dict]:
     price = ""
     price_els = driver.find_elements(By.CSS_SELECTOR, "span.moneyprice__content")
     if price_els:
-        price = price_els[0].text.replace("\n", "").strip()
+        price = price_els[0].text.replace("\n", "").replace(" ", "").strip()
 
 
     if not is_name_match(query, title):
         return []
 
-    return [{"input_name": query, "title": title, "price": price}]
+    return [{"input_name": query, "title": title, "price": str(price)}]
 
 
 def parse_cards(driver, query) -> List[Dict]:
@@ -213,9 +242,9 @@ def parse_cards(driver, query) -> List[Dict]:
             price = ""
             price_els = card.find_elements(By.CSS_SELECTOR, "span.moneyprice__content")
             if price_els:
-                price = price_els[0].text.replace("\n", "").strip()
+                price = price_els[0].text.replace("\n", "").replace(" ", "").strip()
             
-            items.append({"input_name": query, "title": title, "price": price})
+            items.append({"input_name": query, "title": title, "price": str(price)})
         
         except StaleElementReferenceException:
             continue

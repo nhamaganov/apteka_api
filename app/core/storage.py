@@ -45,3 +45,7 @@ def queries_path(job_id: str) -> Path:
 
 def result_csv_path(job_id: str) -> Path:
     return job_dir(job_id) / "result.scv"
+
+
+def log_path(job_id: str) -> Path:
+    return job_dir(job_id) / "runner.log"

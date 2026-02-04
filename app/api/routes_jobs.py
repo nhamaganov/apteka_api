@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
@@ -9,14 +8,12 @@ from app.core.storage import (
     ensure_job_store, job_dir, result_csv_path, upload_path, status_path, result_path, write_json, read_json, queries_path
 )
 from app.core.models import JobProgress, JobStatus
+from app.core.time import now_iso
 from app.utils.xls import extract_queries_from_excel
 
 
 router = APIRouter()
 
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 @router.post("/", response_model=JobStatus)
 async def create_job(request: Request, file: UploadFile = File(...)):
