@@ -1,11 +1,12 @@
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Request
+from fastapi import APIRouter, Query, UploadFile, File, HTTPException, Request, Body
 from fastapi.responses import FileResponse
 
+from app.core.naming import make_display_name
 from app.core.storage import (
-    ensure_job_store, job_dir, result_csv_path, upload_path, status_path, result_path, write_json, read_json, queries_path
+    ensure_job_store, job_dir, log_path, result_csv_path, upload_path, status_path, result_path, write_json, read_json, queries_path
 )
 from app.core.models import JobProgress, JobStatus
 from app.core.time import now_iso
@@ -37,6 +38,7 @@ async def create_job(request: Request, file: UploadFile = File(...)):
     
     write_json(queries_path(job_id), {"queries": queries})
 
+    display_name = make_display_name(file.filename)
 
     status = JobStatus(
         job_id=job_id,
@@ -45,7 +47,12 @@ async def create_job(request: Request, file: UploadFile = File(...)):
         created_at=now_iso(),
     )
 
-    write_json(status_path(job_id), status.model_dump())
+    data = status.model_dump()
+    data["display_name"] = display_name
+    data["filename"] = file.filename
+    data["cancelled"] = False
+
+    write_json(status_path(job_id), data)
     write_json(result_path(job_id), {"job_id": job_id, "ready": False, "items": []})
     
     await request.app.state.queue.enqueue(job_id)
@@ -77,7 +84,7 @@ def download_job_csv(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
     
     status = read_json(st_path)
-    if status.get("status") not in {"done", "failed"}:
+    if status.get("status") not in {"done", "failed", "cancelled"}:
         raise HTTPException(status_code=409, detail="Result not ready yet")
     
     p = result_csv_path(job_id)
@@ -89,3 +96,48 @@ def download_job_csv(job_id: str):
         media_type="text/csv",
         filename=f"{job_id}.csv"
     )
+
+
+@router.get("/{job_id}/log")
+def get_job_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
+    p = log_path(job_id)
+    if not p.exists():
+        return {"job_id": job_id, "lines": []}
+    
+    try:
+        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return {"job_id": job_id, "lines": []}
+    
+    return {"job_id": job_id, "lines": lines[-tail:]}
+
+
+@router.post("/{job_id}/cancel")
+def cancel_job(job_id: str):
+    p = status_path(job_id)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    st = read_json(p)
+
+    if st.get("status") in {"done", "failed", "cancelled"}:
+        return {"job_id": job_id, "status": st.get("status"), "cancelled": st.get("cancelled", True)}
+    
+    st["cancelled"] = True
+    write_json(p, st)
+    return {"job_id": job_id, "status": st.get("status"), "cancelled": True}
+    
+
+@router.post("/{job_id}/delete")
+def delete_job_endpoint(job_id: str):
+    p = status_path(job_id)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    st = read_json(p)
+    if st.get("status") not in {"done", "failed", "cancelled"}:
+        raise HTTPException(status_code=409, detail="Job is not finished. Cancel it first")
+    
+    from app.core.storage import delete_job
+    delete_job(job_id)
+    return {"ok": True, "job_id": job_id}

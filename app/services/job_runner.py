@@ -34,6 +34,18 @@ async def process_job(job_id: str) -> None:
         close_modal_if_any(driver, timeout=2)
 
         for q in queries:
+            st_latest = read_json(status_path(job_id))
+            if st_latest.get("cancelled"):
+                status["status"] = "cancelled"
+                status["finished_at"] = now_iso()
+                write_json(status_path(job_id), status)
+
+                write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "cancelled": True})
+                write_csv(result_csv_path(job_id), all_items)
+
+                job_log(job_id, "JOB cancelled by user")
+                return
+
             job_log(job_id, f"QUERY start: {q!r}")
 
             outcome, items = parse_one_query(driver, q, PARSE_TIMEOUT, PARSE_MAX_RETRIES)

@@ -22,6 +22,13 @@ function setDownload(jobId, enabled) {
 }
 
 function render(st) {
+  const cancelBtn = document.getElementById("cancelBtn");
+  if (cancelBtn) {
+    const finished = (st.status === "done" || st.status === "failed" || st.status === "cancelled"); 
+    cancelBtn.disabled = finished;
+    if (st.status === "cancelled") cancelBtn.textContent = "Остановлено";
+  }
+
   document.getElementById("status").textContent = `status: ${st.status}`;
 
   const p = st.progress || {};
@@ -36,9 +43,33 @@ function render(st) {
   const percent = total > 0 ? (processed / total) * 100 : 0;
   document.getElementById("barFill").style.width = `${clamp(percent, 0, 100)}%`;
 
-  const done = (st.status === "done" || st.status === "failed");
+  const done = (st.status === "done" || st.status === "failed" || st.status === "cancelled");
   setDownload(window.JOB_ID, done);
   return done;
+}
+
+async function fetchLog(jobId, tail=200) {
+  const r = await fetch(`/jobs/${jobId}/log?tail=${tail}`);
+  if(!r.ok) throw new Error(`log http ${r.status}`);
+    return await r.json();
+}
+
+function renderLog(payload) {
+  const el = document.getElementById("log");
+  if (!el) return;
+
+  const lines = payload.lines || [];
+  el.textContent = lines.join("\n") || "(лог пуст)";
+  const nearBottom = (el.scrollTop + el.clientHeight) >= (el.scrollHeight - 40);
+  if (nearBottom) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+async function cancelJob(jobId) {
+  const r = await fetch(`/jobs/${jobId}/cancel`, { method: "POST"});
+  if (!r.ok) throw new Error(`cancel http ${r.status}`);
+  return await r.json();
 }
 
 async function loop() {
@@ -46,11 +77,27 @@ async function loop() {
   let stopped = false;
 
   setDownload(jobId, false);
+  const cancelBtn = document.getElementById("cancelBtn");
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", async () => {
+      cancelBtn.disabled = true;
+      cancelBtn.textContent = "Останавливаю...";
+      try {
+        await cancelJob(jobId);
+      } catch (e) {
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = "Остановить";
+        alert("Не удалось остановить: " + e);
+      }
+    })
+  }
 
   while (!stopped) {
     try {
       const st = await fetchStatus(jobId);
       const done = render(st);
+      const logPayload = await fetchLog(jobId, 200);
+      renderLog(logPayload)
       if (done) break;
     } catch (e) {
       document.getElementById("status").textContent = `status: error (${e})`;

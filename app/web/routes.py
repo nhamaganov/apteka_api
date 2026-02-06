@@ -5,12 +5,13 @@ from pathlib import Path
 import uuid
 
 from app.core.storage import (
-    ensure_job_store, job_dir, upload_path, status_path, result_path, queries_path,
+    delete_job, ensure_job_store, job_dir, list_jobs, read_json, upload_path, status_path, result_path, queries_path,
     write_json
 )
 from app.core.models import JobStatus, JobProgress
 from app.core.time import now_iso
 from app.utils.xls import extract_queries_from_excel
+from app.core.naming import make_display_name
 
 
 router = APIRouter()
@@ -19,7 +20,16 @@ templates = Jinja2Templates(directory="app/web/templates")
 
 @router.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    jobs = list_jobs()
+    
+
+    return templates.TemplateResponse(
+        "index.html", 
+        {
+            "request": request,
+            "jobs": jobs,
+        }
+    )
 
 
 @router.post("/upload")
@@ -43,13 +53,20 @@ async def upload(request: Request, file: UploadFile = File(...)):
 
     write_json(queries_path(job_id), {"queries": queries})
 
+    display_name = make_display_name(file.filename)
+
     status = JobStatus(
         job_id=job_id,
         status="queued",
         progress=JobProgress(total=len(queries)),
         created_at=now_iso(),
     )
-    write_json(status_path(job_id), status.model_dump())
+    data = status.model_dump()
+    data["display_name"] = display_name
+    data["filename"] = file.filename
+    data["cancelled"] = False
+
+    write_json(status_path(job_id), data)
     write_json(result_path(job_id), {"job_id": job_id, "ready": False, "items": []})
 
     # 🔥 кладём job в очередь воркера
@@ -61,5 +78,23 @@ async def upload(request: Request, file: UploadFile = File(...)):
 
 @router.get("/ui/{job_id}", response_class=HTMLResponse)
 def job_page(request: Request, job_id: str):
-    # страница прогресса, JS сам будет опрашивать /jobs/{job_id}
-    return templates.TemplateResponse("job.html", {"request": request, "job_id": job_id})
+    name = None
+    try:
+        st = read_json(status_path(job_id))
+        name = st.get("display_name") or st.get("filename")
+    except Exception:
+        pass
+
+    return templates.TemplateResponse("job.html", {"request": request, "job_id": job_id, "display_name": name})
+
+
+@router.post("/ui/{job_id}/delete")
+def delete_job_ui(job_id: str):
+    stp = status_path(job_id)
+    if not stp.exists():
+        return RedirectResponse("/", status_code=303)
+    st = read_json(stp)
+    if st.get("status") in {"done", "failed", "cancelled"}:
+        delete_job(job_id)
+        
+    return RedirectResponse("/", status_code=303)

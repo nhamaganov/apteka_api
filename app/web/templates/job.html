@@ -6,9 +6,14 @@
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+  {% include "_header.html" %}
   <div class="wrap">
-    <h1>Задача</h1>
-    <div class="mono">job_id: {{ job_id }}</div>
+    <h1>{{ display_name }}</h1>
+    
+    <div class="mono">
+      <a class="btn" href="/">← Назад</a>
+      Название: {{ display_name }}
+    </div>
 
     <div id="status" class="box">status: ...</div>
 
@@ -25,7 +30,13 @@
     </div>
 
     <div class="box">
+      <div><b>Логи</b> <span class="hint">(обновляется автоматически)</span></div>
+      <pre id="log" class="logbox">...</pre>
+    </div>
+
+    <div class="box">
       <a id="download" class="btn disabled" href="#" aria-disabled="true">Скачать CSV</a>
+      <button id="cancelBtn" class="btn danger">Остановить</button>
       <a class="btn" href="/">Новая загрузка</a>
     </div>
   </div>

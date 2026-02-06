@@ -5,7 +5,15 @@
   <title>Apteka Parser</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
+{% set STATUS_RU = {
+  "queued": "В очереди",
+  "running": "Выполняется",
+  "done": "Завершено",
+  "failed": "Ошибка",
+  "cancelled": "Остановлено",
+} %}
 <body>
+  {% include "_header.html" %}
   <div class="wrap">
     <h1>Загрузка файла</h1>
 
@@ -13,6 +21,67 @@
       <input type="file" name="file" accept=".xls,.xlsx" required />
       <button type="submit">Запустить парсинг</button>
     </form>
+
+    <h2>Последние задачи</h2>
+    {% if jobs and jobs|length > 0 %}
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Название</th>
+            <th>Статус</th>
+            <th>Прогресс</th>
+            <th>Дата запуска</th>
+            <th>Действия</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for j in jobs %}
+            <tr>
+              <td class="mono">
+                <a href="/ui/{{ j.job_id }}">
+                  {{ j.display_name or j.filename }}
+                </a>
+              </td>
+        
+              <td>{{ STATUS_RU.get(j.status, j.status) }}</td>
+        
+              <td>
+                {% if j.progress %}
+                  <div>
+                    <b>{{ j.progress.processed or 0 }}</b> из <b>{{ j.progress.total or 0 }}</b>
+                  </div>
+                  <div class="hint">
+                    Найдено: {{ j.progress.matched or 0}}
+                    Не найдено: {{ j.progress.not_found or 0}}
+                    Ошибки: {{ j.progress.failed or 0}}
+                  </div>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+        
+              <td class="mono">{{ j.created_at }}</td>
+        
+              <td>
+                {% if j.status in ["done", "failed", "cancelled"] %}
+                  <a class="btn-sm" href="/jobs/{{ j.job_id }}/download">Скачать</a>
+
+                  <form action="/ui/{{ j.job_id }}/delete" method="post" style="display:inline"
+                        onsubmit="return confirm('Удалить задачу {{ j.job_id }}?');">
+                    <button class="btn-sm danger" type="submit">Удалить</button>
+                  </form>
+                {% else %}
+                  <span class="btn-sm disabled">Скачать</span>
+                  <span class="btn-sm disabled">Удалить</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>        
+      </table>
+    {% else %}
+      <p class="hint">Пока нет задач.</p>
+    {% endif %}
 
     <p class="hint">
       После загрузки откроется страница с прогрессом. По завершении можно скачать CSV.
