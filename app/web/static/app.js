@@ -1,3 +1,11 @@
+const STATUS_RU = {
+  "queued": "В очереди",
+  "running": "Выполняется",
+  "done": "Завершено",
+  "failed": "Ошибка",
+  "cancelled": "Остановлено",
+};
+
 async function fetchStatus(jobId) {
     const r = await fetch(`/jobs/${jobId}`);
     if (!r.ok) throw new Error(`status http ${r.status}`);
@@ -29,7 +37,8 @@ function render(st) {
     if (st.status === "cancelled") cancelBtn.textContent = "Остановлено";
   }
 
-  document.getElementById("status").textContent = `status: ${st.status}`;
+  const statusRu = STATUS_RU[st.status] || st.status
+  document.getElementById("status").textContent = `Статус: ${statusRu}`;
 
   const p = st.progress || {};
   const processed = p.processed || 0;
