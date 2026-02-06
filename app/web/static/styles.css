@@ -370,3 +370,51 @@ button.btn-sm:disabled {
 .tbl td:not(:last-child) {
   border-right: 1px solid rgba(15, 23, 42, 0.08);
 }
+
+
+/* ===== Status badges ===== */
+
+.status {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 1.2;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* Завершено */
+.status-done {
+  background: #eefaf1;
+  border-color: #bfe5cc;
+  color: #256d3b;
+}
+
+/* Ошибка */
+.status-failed {
+  background: #fff1f1;
+  border-color: #f3b4b4;
+  color: #9b1c1c;
+}
+
+/* Выполняется */
+.status-running {
+  background: #fff7e6;
+  border-color: #f3d9a4;
+  color: #8a5b00;
+}
+
+/* В очереди */
+.status-queued {
+  background: #eef4ff;
+  border-color: #c7d8ff;
+  color: #1e40af;
+}
+
+/* Остановлено */
+.status-cancelled {
+  background: #f4f4f5;
+  border-color: #d4d4d8;
+  color: #52525b;
+}

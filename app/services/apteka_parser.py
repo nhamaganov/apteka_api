@@ -1,5 +1,7 @@
 
+from dataclasses import dataclass
 import random
+import re
 import time
 from typing import List, Dict, Tuple, Literal
 
@@ -205,7 +207,105 @@ def run_search_with_retry(driver, query, timeout, max_retries) -> None:
 # Parsing
 # ---------------------------
 
+@dataclass
+class Variant:
+    qty: int
+    href: str
+    selected: bool
+
+
+def get_variants_from_product_page(driver) -> List[Variant]:
+    """
+    Возвращает варианты упаковок на странице товара:
+    qty (число 'В упаковке'), href (ссылка на этот вариант), selected.
+    Если блока вариантов нет — вернёт [].
+    """
+    variants: List[Variant]  = []
+
+    buttons = driver.find_elements(By.CSS_SELECTOR, ".ProductVariants__level .variantButton")
+    for btn in buttons:
+        try:
+            selected = (btn.get_attribute("aria-selected") == "true")
+
+            qty = None
+            qty_b = btn.find_elements(By.CSS_SELECTOR, ".variantButton__descr em + b")
+            if qty_b:
+                txt = (qty_b[0].text or "").strip()
+                if txt.isdigit():
+                    qty = int(txt)
+
+            if qty is None:
+                descr_text = (btn.text or "")
+                m = re.search(r"В упаковке:\s*(\d+)", descr_text)
+                if m:
+                    qty = int(m.group(1))
+            
+            if qty is None:
+                continue
+
+            link = btn.find_elements(By.CSS_SELECTOR, "a.variantButton__link[href]")
+            if not link:
+                continue
+            href = link[0].get_attribute("href")
+
+            variants.append(Variant(qty=qty, href=href, selected=selected))
+        
+        except StaleElementReferenceException:
+            continue
+        except Exception:
+            continue
+    
+    return variants
+
+
+def wait_variant_selected(driver, target_qty: int, timeout: int = 6) -> bool:
+    """
+    Ждёт, что вариант с target_qty станет выбранным (aria-selected=true).
+    """
+    end = time.time() + timeout
+    while time.time() < end:
+        vars_ = get_variants_from_product_page(driver)
+        for v in vars_:
+            if v.qty == target_qty and v.selected:
+                return True
+
+        time.sleep(0.2)
+    return False
+
+
+def select_variant_qty(driver, target_qty: int, timeout: int =6) -> bool:
+    """
+    Если на странице есть варианты и среди них есть target_qty:
+      - если он уже selected -> True
+      - иначе переходим по href этого варианта -> ждём selected -> True/False
+    Если вариантов нет или target_qty не найден -> False
+    """
+    vars_ = get_variants_from_product_page(driver)
+    if not vars_:
+        return False
+    
+    for v in vars_:
+        if v.qty == target_qty and v.selected:
+            return True
+    
+    target = next((v for v in vars_ if v.qty == target_qty), None)
+    if not target:
+        return False
+
+    driver.get(target.href)
+    return wait_variant_selected(driver, target_qty, timeout=timeout)
+
+
 def parse_product_page(driver, query, timeout) -> List[Dict]:
+    vars_ = get_variants_from_product_page(driver)
+    print("BEFORE:", [(v.qty, v.selected) for v in vars_])
+
+    ok = select_variant_qty(driver, 63, timeout=8)  # например
+    print("SELECT OK:", ok)
+
+    vars_2 = get_variants_from_product_page(driver)
+    print("AFTER:", [(v.qty, v.selected) for v in vars_2])
+    
     title_el = find_visible(driver, By.CSS_SELECTOR, "h1.ViewProductPage__title", timeout=timeout)
     title = (title_el.text or "").strip()
     

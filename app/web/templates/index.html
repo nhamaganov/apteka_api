@@ -43,7 +43,11 @@
                 </a>
               </td>
         
-              <td>{{ STATUS_RU.get(j.status, j.status) }}</td>
+              <td>
+                <span class="status status-{{ j.status }}">
+                  {{ STATUS_RU.get(j.status, j.status) }}
+                </span>
+              </td>
         
               <td>
                 {% if j.progress %}
