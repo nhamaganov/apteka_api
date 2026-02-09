@@ -18,6 +18,26 @@ router = APIRouter()
 
 @router.post("/", response_model=JobStatus)
 async def create_job(request: Request, file: UploadFile = File(...)):
+    """
+    Создаёт новую задачу (job) на основе загруженного Excel-файла.
+
+    Функция:
+    - принимает Excel-файл (.xls или .xlsx);
+    - сохраняет файл в директорию задачи;
+    - извлекает запросы из Excel;
+    - инициализирует статус и результаты задачи;
+    - ставит задачу в очередь на обработку.
+
+    В случае ошибки чтения или парсинга Excel-файла
+    возвращает HTTP 400.
+
+    Args:
+        request (Request): объект запроса FastAPI, используется для доступа к очереди.
+        file (UploadFile): загруженный Excel-файл с входными данными.
+
+    Returns:
+        JobStatus: начальный статус созданной задачи (queued).
+    """
     ensure_job_store()
 
     ext = Path(file.filename).suffix.lower()

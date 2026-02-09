@@ -10,27 +10,36 @@ JOB_STORE = Path(os.environ.get("JOB_STORE", "job_store")).resolve()
 
 
 def ensure_job_store() -> None:
+    """Гарантирует, что папка JOB_STORE существует, создав её при необходимости"""
     JOB_STORE.mkdir(parents=True, exist_ok=True)
 
 
 def job_dir(job_id: str) -> Path:
+    """Возвращает путь к рабочей папке"""
     return JOB_STORE / job_id
 
 
 def status_path(job_id: str) -> Path:
+    """Возвращает путь к папке со статусом"""
     return job_dir(job_id) / "status.json"
 
 
 def result_path(job_id: str) -> Path:
+    """Возвращает путь к папке с результатом"""
     return job_dir(job_id) / "result.json"
 
 
 def upload_path(job_id: str, filename: str) -> Path:
+    """Возвращает путь к папке загрузки"""
     safe_name = Path(filename).name
     return job_dir(job_id) / safe_name
 
 
 def write_json(path: Path, data: Dict[str, Any]) -> None:
+    """
+    Записывает данные во временный файл, а после передает из в json-файл.
+    Гарантирует, что json не будет поврежденным
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -38,22 +47,27 @@ def write_json(path: Path, data: Dict[str, Any]) -> None:
 
 
 def read_json(path: Path) -> Dict[str, Any]:
+    """Читает json-файл и превращает в словарь"""
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def queries_path(job_id: str) -> Path:
+    """Возвращает путь к файлу с запросами"""
     return job_dir(job_id) / "queries.json"
 
 
 def result_csv_path(job_id: str) -> Path:
+    """Возвращает путь к файлу с результатами"""
     return job_dir(job_id) / "result.csv"
 
 
 def log_path(job_id: str) -> Path:
+    """Возвращает путь к файлу с логами"""
     return job_dir(job_id) / "runner.log"
 
 
 def list_jobs(limit: int = 20) -> List[Dict[str, Any]]:
+    """Возвращает список всех существующих парсингов"""
     ensure_job_store()
     jobs = []
 
@@ -80,6 +94,7 @@ def list_jobs(limit: int = 20) -> List[Dict[str, Any]]:
 
 
 def delete_job(job_id: str) -> bool:
+    """Удаляет парсинг по job_id"""
     p = job_dir(job_id)
     if not p.exists():
         return False 

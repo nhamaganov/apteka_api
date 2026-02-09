@@ -51,7 +51,7 @@ async def upload(request: Request, file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Не смог прочитать Excel: {e}")
 
-    write_json(queries_path(job_id), {"queries": queries})
+    write_json(queries_path(job_id), {"queries": queries, "some_text": "text"})
 
     display_name = make_display_name(file.filename)
 

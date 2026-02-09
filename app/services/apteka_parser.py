@@ -1,9 +1,10 @@
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 import random
 import re
 import time
-from typing import List, Dict, Tuple, Literal
+from typing import List, Dict, Optional, Tuple, Literal
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -158,6 +159,19 @@ def set_search_query(driver, query, timeout) -> None:
     inp.send_keys(Keys.BACKSPACE)
     inp.send_keys(normalize(query))
 
+
+def format_price_2dp(raw: str) -> str:
+    if raw is None:
+        return ""
+    s = str(raw).replace("\xa0", " ").strip()
+    s = s.replace(" ", "")
+    s = s.replace(",", ".")
+    try:
+        d = Decimal(s)
+    except InvalidOperation:
+        return ""
+    return f"{d:.2f}"
+
 # ---------------------------
 # Search
 # ---------------------------
@@ -258,6 +272,72 @@ def get_variants_from_product_page(driver) -> List[Variant]:
     return variants
 
 
+def get_product_page_price(driver, timeout: int = 6) -> str:
+    """
+    Берём цену из meta[itemprop='price']
+    """
+    end = time.time() + timeout
+    while time.time() < end:
+        meta = driver.find_elements(By.CSS_SELECTOR, "meta[itemprop='price']")
+        if meta:
+            v = (meta[0].get_attribute("content") or "").strip()
+            if v:
+                p = format_price_2dp(v)
+                if p:
+                    return p
+        time.sleep(0.2)
+    return ""
+
+
+def extract_pack_qty_from_title(title: str) -> Optional[int]:
+    """
+    Пытается достать количество (шт) из заголовка товара.
+    Примеры:
+      - "Белара 21 шт. таблетки..." -> 21
+      - "Анжелик N84 ..." -> 84
+      - "… 28 шт …" -> 28
+    """
+    if not title:
+        return None
+    
+    t = title.lower().replace("ё", "е")
+
+    m = re.search(r"\b(\d+)\s*шт\.?\b", t)
+    if m:
+        return int(m.group(1))
+
+    m = re.search(r"\bn\s*(\d+)\b", t)
+    if m:
+        return int(m.group(1))
+    
+    return None
+
+
+def get_price_marker(driver) -> str:
+    """
+    Возвращает 'маркер' текущей цены на product page.
+    Самый стабильный маркер — meta[itemprop=price] (если есть),
+    иначе текст из правого виджета.
+    """
+    meta = driver.find_elements(By.CSS_SELECTOR, "meta[itemprop='price']")
+    if meta:
+        v = meta[0].get_attribute("content")
+        if v:
+            return v.strip()
+        
+    return get_product_page_price(driver, timeout=2) or ""
+
+
+def wait_price_updated(driver, old_marker: str, timeout: int = 8) -> bool:
+    end = time.time() + timeout
+    while time.time() < end:
+        m = get_price_marker(driver)
+        if m and m != old_marker:
+            return True
+        time.sleep(0.2)
+    return False
+
+
 def wait_variant_selected(driver, target_qty: int, timeout: int = 6) -> bool:
     """
     Ждёт, что вариант с target_qty станет выбранным (aria-selected=true).
@@ -273,34 +353,153 @@ def wait_variant_selected(driver, target_qty: int, timeout: int = 6) -> bool:
     return False
 
 
-def select_variant_qty(driver, target_qty: int, timeout: int =6) -> bool:
-    """
-    Если на странице есть варианты и среди них есть target_qty:
-      - если он уже selected -> True
-      - иначе переходим по href этого варианта -> ждём selected -> True/False
-    Если вариантов нет или target_qty не найден -> False
-    """
-    vars_ = get_variants_from_product_page(driver)
-    if not vars_:
-        return False
+def select_variant_qty(
+    driver,
+    target_qty: int,
+    timeout: int = 8,
+    job_id: str | None = None,
+) -> bool:
+    from app.services.job_runner import job_log
     
-    for v in vars_:
-        if v.qty == target_qty and v.selected:
-            return True
-    
-    target = next((v for v in vars_ if v.qty == target_qty), None)
-    if not target:
+    variants = get_variants_from_product_page(driver)
+    if not variants:
+        if job_id:
+            job_log(job_id, "VARIANT: no variants found on page")
         return False
 
+    # если нужный вариант уже выбран
+    for v in variants:
+        if v.qty == target_qty and v.selected:
+            if job_id:
+                job_log(
+                    job_id,
+                    f"VARIANT already selected qty={target_qty} "
+                    f"url={driver.current_url} "
+                    f"price_meta={get_price_marker(driver)!r}"
+                )
+            return True
+
+    target = next((v for v in variants if v.qty == target_qty), None)
+    if not target:
+        if job_id:
+            job_log(
+                job_id,
+                f"VARIANT qty={target_qty} not found. "
+                f"available={[v.qty for v in variants]}"
+            )
+        return False
+
+    # ===== ДО ПЕРЕХОДА =====
+    old_url = driver.current_url
+    old_price = get_price_marker(driver)
+
+    if job_id:
+        job_log(
+            job_id,
+            f"VARIANT switch start qty={target_qty} "
+            f"old_url={old_url} "
+            f"old_price_meta={old_price!r} "
+            f"href={target.href}"
+        )
+
+    # ===== ПЕРЕХОД =====
     driver.get(target.href)
-    return wait_variant_selected(driver, target_qty, timeout=timeout)
+
+    # ждём, что вариант стал selected
+    ok_selected = wait_variant_selected(driver, target_qty, timeout)
+
+    # ждём, что цена обновилась
+    ok_price = wait_price_updated(driver, old_marker=old_price, timeout=timeout)
+
+    # ===== ПОСЛЕ ПЕРЕХОДА =====
+    new_url = driver.current_url
+    new_price = get_price_marker(driver)
+
+    if job_id:
+        job_log(
+            job_id,
+            f"VARIANT switch end qty={target_qty} "
+            f"ok_selected={ok_selected} "
+            f"ok_price_change={ok_price} "
+            f"new_url={new_url} "
+            f"new_price_meta={new_price!r}"
+        )
+
+    return ok_selected
+
+
+def parse_product_page_one_item(
+    driver,
+    query_name: str,
+    expected_qty: Optional[int],
+    qty_is_sum: bool,
+    timeout: int = 6
+) -> Tuple[bool, Dict]:
+    """
+    Возвращает (ok, item).
+    ok=True -> нашли нужный вариант (строго 1)
+    ok=False -> либо нет подходящего варианта, либо не совпало название
+    """
+    title_el = find_visible(driver, By.CSS_SELECTOR, "h1.ViewProductPage__title", timeout=timeout)
+    title = (title_el.text or "").strip()
+
+    if not title or "набор" in title.lower():
+        return False, {"input_name": query_name, "message": "Нет подходящего варианта"}
+    
+    if not is_name_match(query_name, title):
+        return False, {"input_name": query_name, "message": "Нет подходящего варианта"}
+    
+    warning = ""
+    if qty_is_sum:
+        warning = "Уточните цену сами, могут быть неточности"
+
+    if expected_qty is None:
+        price = get_product_page_price(driver,timeout=timeout)
+        found_qty = extract_pack_qty_from_title(title)
+        return True, {
+            "input_name": query_name,
+            "title": title,
+            "price": price,
+            "input_qty": expected_qty,
+            "found_qty": found_qty,
+            "warning": warning
+        }
+
+    found_qty = extract_pack_qty_from_title(title)
+    if found_qty == expected_qty:
+        price = get_product_page_price(driver, timeout=timeout)
+        return True, {
+            "input_name": query_name,
+            "title": title,
+            "price": price,
+            "input_qty": expected_qty,
+            "found_qty": found_qty,
+            "warning": warning
+        }
+    
+    if select_variant_qty(driver, expected_qty, timeout=timeout):
+        title_el = find_visible(driver, By.CSS_SELECTOR, "h1.ViewProductPage__title", timeout=timeout)
+        title2 = (title_el.text or "").strip()
+        found_qty2 = extract_pack_qty_from_title(title2)
+        price2 = get_product_page_price(driver, timeout=timeout)
+
+        return True, {
+            "input_name": query_name,
+            "title": title2,
+            "price": price2,
+            "input_qty": expected_qty,
+            "found_qty": found_qty2 if found_qty2 is not None else expected_qty,
+            "warning": warning
+        }
+
+    return False, {"input_name": query_name, "message": "Нет подходящего варианта", "input_qty": expected_qty, "warning": warning}
 
 
 def parse_product_page(driver, query, timeout) -> List[Dict]:
     vars_ = get_variants_from_product_page(driver)
     print("BEFORE:", [(v.qty, v.selected) for v in vars_])
 
-    ok = select_variant_qty(driver, 63, timeout=8)  # например
+    ok = select_variant_qty(driver, 84, timeout=8)
     print("SELECT OK:", ok)
 
     vars_2 = get_variants_from_product_page(driver)
@@ -357,21 +556,29 @@ def parse_cards(driver, query) -> List[Dict]:
 # Public API for worker
 # ---------------------------
 
-def parse_one_query(driver, query, timeout, max_retries) -> Tuple[Outcome, List[Dict]]:
+def parse_one_query(driver, query_name: str, timeout, max_retries, expected_qty: Optional[int] = None, qty_is_sum: bool = False) -> Tuple[Outcome, List[Dict]]:
     try:
-        run_search_with_retry(driver, query, timeout=timeout, max_retries=max_retries)
+        run_search_with_retry(driver, query_name, timeout=timeout, max_retries=max_retries)
 
         if is_empty_results_page(driver):
             return "not_found", []
         
         if is_product_page(driver):
-            items = parse_product_page(driver, query=query, timeout=timeout)
-        else:
-            items = parse_cards(driver,query=query)
-        
+            ok, item = parse_product_page_one_item(
+                driver,
+                query_name=query_name,
+                expected_qty=expected_qty,
+                qty_is_sum=qty_is_sum,
+                timeout=timeout
+            )
+            if ok:
+                return "matched", [item]
+            else:
+                return "not_found", [item]
+
+        items = parse_cards(driver,query=query_name)
         if items:
             return "matched", items
-
         return "not_found", []
 
     except WebDriverException as e:

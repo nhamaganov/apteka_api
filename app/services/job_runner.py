@@ -19,7 +19,7 @@ async def process_job(job_id: str) -> None:
     write_json(status_path(job_id), status)
 
     queries_data = read_json(queries_path(job_id))
-    queries: List[str] = queries_data.get("queries", [])
+    queries = queries_data.get("queries", [])
     total = len(queries)
 
     status["progress"]["total"] = total
@@ -45,20 +45,50 @@ async def process_job(job_id: str) -> None:
 
                 job_log(job_id, "JOB cancelled by user")
                 return
+            
+            if isinstance(q, str):
+                q_name = q
+                q_qty = None
+                q_sum = False
+                raw = q
+            else:
+                q_name = (q.get("name")or "").strip()
+                q_qty = q.get("qty", None)
+                q_sum = bool(q.get("qty_is_sum", False))
+                raw = q.get("raw") or q_name
 
-            job_log(job_id, f"QUERY start: {q!r}")
+            if not q_name:
+                status["progress"]["processed"] += 1
+                status["progress"]["not_found"] += 1
+                write_csv(status_path(job_id), status)
+                continue
 
-            outcome, items = parse_one_query(driver, q, PARSE_TIMEOUT, PARSE_MAX_RETRIES)
+            job_log(job_id, f"QUERY start: {q_name!r} qty={q_qty!r} sum={q_sum} raw={raw!r}")
+
+            outcome, items = parse_one_query(
+                driver,
+                q_name,
+                PARSE_TIMEOUT,
+                PARSE_MAX_RETRIES,
+                expected_qty=q_qty,
+                qty_is_sum=q_sum,
+            )
 
             job_log(job_id, f"QUERY done: {q!r} outcome={outcome} items={len(items)}")
             if items:
                 for it in items[:3]:
-                    job_log(job_id, f"item: title={it.get("title")!r} price={it.get("price")!r}")
+                    job_log(
+                        job_id,
+                        f"item: title={it.get('title')!r} price={it.get('price')!r}"
+                        f"item: title={it.get('input_qty')!r} price={it.get('found_qty')!r}"
+                        f"item: title={it.get('warning')!r} price={it.get('message')!r}"
+                    )
             if outcome == "matched":
                 status["progress"]["matched"] += 1
                 all_items.extend(items)
             elif outcome == "not_found":
                 status["progress"]["not_found"] += 1
+                all_items.extend(items)
             else:
                 status["progress"]["failed"] += 1
             
