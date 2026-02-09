@@ -72,6 +72,8 @@ async def process_job(job_id: str) -> None:
                 PARSE_MAX_RETRIES,
                 expected_qty=q_qty,
                 qty_is_sum=q_sum,
+                raw_input=raw,
+                job_id=job_id,
             )
 
             job_log(job_id, f"QUERY done: {q!r} outcome={outcome} items={len(items)}")

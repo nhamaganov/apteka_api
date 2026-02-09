@@ -22,6 +22,7 @@ def write_csv(path: Path, items: List[Dict]) -> None:
             f,
             fieldnames=fieldnames,
             extrasaction="ignore",
+            delimiter=";"
         )
         writer.writeheader()
         writer.writerows(items)

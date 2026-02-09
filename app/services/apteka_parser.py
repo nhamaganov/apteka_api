@@ -5,6 +5,7 @@ import random
 import re
 import time
 from typing import List, Dict, Optional, Tuple, Literal
+from urllib.parse import urlsplit
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -15,6 +16,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, WebDriverException
 
+from app.core.settings import PARSE_VARIANT_SETTLE_DELAY
 from app.utils.match import is_name_match, normalize
 
 
@@ -51,15 +53,21 @@ def find_clickable(driver_or_el, by, value, timeout) -> w:
 
 def make_driver() -> webdriver.Chrome:
     """Создание дравера браузера"""
+    # options = Options()
+    # options.add_argument("--headless=new")
+    # options.add_argument("--no-sandbox")
+    # options.add_argument("--disable-dev-shm-usage")
+    # options.add_argument("--window-size=1400,900")
+    # options.binary_location = "/usr/bin/chromium-browser"
+    # service = Service("/usr/bin/chromedriver")
+
+    # return webdriver.Chrome(service=service, options=options)
     options = Options()
     options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1400,900")
-    options.binary_location = "/usr/bin/chromium-browser"
-    service = Service("/usr/bin/chromedriver")
 
-    return webdriver.Chrome(service=service, options=options)
+    return webdriver.Chrome(options=options)
+
 
 # ---------------------------
 # Page detectors
@@ -172,6 +180,170 @@ def format_price_2dp(raw: str) -> str:
         return ""
     return f"{d:.2f}"
 
+
+def _price_text_to_amount(raw: str) -> str:
+    if raw is None:
+        return ""
+    text = str(raw).replace("\n", " ").replace("\xa0", " ").strip()
+    text = re.sub(r"[^\d,.\s]", "", text).strip()
+    return format_price_2dp(text)
+
+
+def _extract_moneyprice_from_content_el(content_el) -> str:
+    """
+    Извлекает цену из структуры:
+    <span class='moneyprice__content'>
+      <span class='moneyprice__roubles'>4 559</span>
+      <span class='moneyprice__pennies'>.00</span>
+    </span>
+    """
+    try:
+        r_els = content_el.find_elements(By.CSS_SELECTOR, ".moneyprice__roubles")
+        p_els = content_el.find_elements(By.CSS_SELECTOR, ".moneyprice__pennies")
+        r = (r_els[0].text if r_els else "").strip()
+        p = (p_els[0].text if p_els else "").strip()
+        if r:
+            if p and not p.startswith("."):
+                p = "." + p
+            return _price_text_to_amount(f"{r}{p}")
+    except Exception:
+        pass
+    return _price_text_to_amount(content_el.text or "")
+
+
+def _extract_variant_qty_from_button(btn) -> Optional[int]:
+    try:
+        qty_b = btn.find_elements(By.CSS_SELECTOR, ".variantButton__descr em + b")
+        if qty_b:
+            txt = (qty_b[0].text or "").strip()
+            if txt.isdigit():
+                return int(txt)
+    except Exception:
+        pass
+    return None
+
+
+def _get_selected_variant_component_price(driver, expected_qty: Optional[int] = None) -> str:
+    buttons = driver.find_elements(By.CSS_SELECTOR, ".ProductVariants .variantButton")
+    if not buttons:
+        return ""
+
+    selected = []
+    for btn in buttons:
+        try:
+            selected_flag = btn.get_attribute("aria-selected") == "true"
+            qty = _extract_variant_qty_from_button(btn)
+            if selected_flag:
+                selected.append((btn, qty))
+        except Exception:
+            continue
+
+    if not selected:
+        return ""
+
+    target_btn = None
+    if expected_qty is not None:
+        for btn, qty in selected:
+            if qty == expected_qty:
+                target_btn = btn
+                break
+    if target_btn is None:
+        target_btn = selected[0][0]
+
+    try:
+        for content_el in target_btn.find_elements(By.CSS_SELECTOR, "span.moneyprice__content"):
+            if not content_el.is_displayed():
+                continue
+            price = _extract_moneyprice_from_content_el(content_el)
+            if price:
+                return price
+    except Exception:
+        return ""
+    return ""
+
+
+def _get_sidebar_offer_price(driver) -> str:
+    selectors = [
+        ".ProductOffer__price span.moneyprice__content",
+        ".ProductPanel span.moneyprice__content",
+    ]
+    for selector in selectors:
+        for content_el in driver.find_elements(By.CSS_SELECTOR, selector):
+            try:
+                if not content_el.is_displayed():
+                    continue
+                price = _extract_moneyprice_from_content_el(content_el)
+                if price:
+                    return price
+            except Exception:
+                continue
+    return ""
+
+
+def _get_visible_product_page_price(driver, expected_qty: Optional[int] = None) -> str:
+    """
+    Возвращает цену из видимого блока товара на product page.
+    Нужен как основной источник: meta[itemprop='price'] на сайте может
+    отставать при переключении вариантов упаковки.
+    """
+    variant_component_price = _get_selected_variant_component_price(driver, expected_qty=expected_qty)
+    if variant_component_price:
+        return variant_component_price
+
+    offer_price = _get_sidebar_offer_price(driver)
+    if offer_price:
+        return offer_price
+
+    selectors = [
+        ".ViewProductPage span.moneyprice__content",
+        ".ViewProductPage [class*='moneyprice__content']",
+        "span.moneyprice__content",
+    ]
+    for selector in selectors:
+        for el in driver.find_elements(By.CSS_SELECTOR, selector):
+            try:
+                if not el.is_displayed():
+                    continue
+                price = _price_text_to_amount(el.text or "")
+                if price:
+                    return price
+            except StaleElementReferenceException:
+                continue
+            except Exception:
+                continue
+    return ""
+
+
+def _get_meta_product_page_price(driver) -> str:
+    meta = driver.find_elements(By.CSS_SELECTOR, "meta[itemprop='price']")
+    if not meta:
+        return ""
+    val = (meta[0].get_attribute("content") or "").strip()
+    return format_price_2dp(val)
+
+
+def _normalized_product_url(url: str) -> str:
+    s = urlsplit(url)
+    path = s.path or "/"
+    if not path.endswith("/"):
+        path += "/"
+    return f"{s.scheme}://{s.netloc}{path}"
+
+
+def _wait_navigation_to_target(driver, target_href: str, timeout: int = 10) -> bool:
+    target_norm = _normalized_product_url(target_href)
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            ready_state = driver.execute_script("return document.readyState")
+        except Exception:
+            ready_state = ""
+        curr_norm = _normalized_product_url(driver.current_url)
+        if curr_norm == target_norm and ready_state == "complete":
+            return True
+        time.sleep(0.2)
+    return False
+
 # ---------------------------
 # Search
 # ---------------------------
@@ -272,19 +444,19 @@ def get_variants_from_product_page(driver) -> List[Variant]:
     return variants
 
 
-def get_product_page_price(driver, timeout: int = 6) -> str:
+def get_product_page_price(driver, timeout: int = 6, expected_qty: Optional[int] = None) -> str:
     """
-    Берём цену из meta[itemprop='price']
+    Берём цену в приоритете из видимого блока, затем fallback на meta.
     """
     end = time.time() + timeout
     while time.time() < end:
-        meta = driver.find_elements(By.CSS_SELECTOR, "meta[itemprop='price']")
-        if meta:
-            v = (meta[0].get_attribute("content") or "").strip()
-            if v:
-                p = format_price_2dp(v)
-                if p:
-                    return p
+        visible_price = _get_visible_product_page_price(driver, expected_qty=expected_qty)
+        if visible_price:
+            return visible_price
+
+        meta_price = _get_meta_product_page_price(driver)
+        if meta_price:
+            return meta_price
         time.sleep(0.2)
     return ""
 
@@ -315,17 +487,16 @@ def extract_pack_qty_from_title(title: str) -> Optional[int]:
 
 def get_price_marker(driver) -> str:
     """
-    Возвращает 'маркер' текущей цены на product page.
-    Самый стабильный маркер — meta[itemprop=price] (если есть),
-    иначе текст из правого виджета.
+    Возвращает маркер состояния product page для ожиданий после
+    переключения варианта: selected qty + видимая цена + meta-цена.
     """
-    meta = driver.find_elements(By.CSS_SELECTOR, "meta[itemprop='price']")
-    if meta:
-        v = meta[0].get_attribute("content")
-        if v:
-            return v.strip()
-        
-    return get_product_page_price(driver, timeout=2) or ""
+    vars_ = get_variants_from_product_page(driver)
+    selected_qty = next((str(v.qty) for v in vars_ if v.selected), "")
+
+    visible_price = _get_visible_product_page_price(driver, expected_qty=None)
+    meta_price = _get_meta_product_page_price(driver)
+    selected_variant_price = _get_selected_variant_component_price(driver, expected_qty=None)
+    return f"{selected_qty}|{selected_variant_price}|{visible_price}|{meta_price}"
 
 
 def wait_price_updated(driver, old_marker: str, timeout: int = 8) -> bool:
@@ -405,15 +576,35 @@ def select_variant_qty(
     # ===== ПЕРЕХОД =====
     driver.get(target.href)
 
+    nav_ok = _wait_navigation_to_target(driver, target.href, timeout=max(timeout, 10))
+    if job_id:
+        job_log(
+            job_id,
+            f"VARIANT navigation check qty={target_qty} "
+            f"target={_normalized_product_url(target.href)!r} "
+            f"current={_normalized_product_url(driver.current_url)!r} "
+            f"ok={nav_ok}"
+        )
+
     # ждём, что вариант стал selected
     ok_selected = wait_variant_selected(driver, target_qty, timeout)
 
     # ждём, что цена обновилась
     ok_price = wait_price_updated(driver, old_marker=old_price, timeout=timeout)
 
+    if PARSE_VARIANT_SETTLE_DELAY > 0:
+        if job_id:
+            job_log(
+                job_id,
+                f"VARIANT settle delay before reading new price: {PARSE_VARIANT_SETTLE_DELAY:.1f}s"
+            )
+        time.sleep(PARSE_VARIANT_SETTLE_DELAY)
+
     # ===== ПОСЛЕ ПЕРЕХОДА =====
     new_url = driver.current_url
     new_price = get_price_marker(driver)
+    new_price_component = _get_selected_variant_component_price(driver, expected_qty=target_qty)
+    new_price_offer = _get_sidebar_offer_price(driver)
 
     if job_id:
         job_log(
@@ -422,7 +613,9 @@ def select_variant_qty(
             f"ok_selected={ok_selected} "
             f"ok_price_change={ok_price} "
             f"new_url={new_url} "
-            f"new_price_meta={new_price!r}"
+            f"new_price_meta={new_price!r} "
+            f"new_price_component={new_price_component!r} "
+            f"new_price_offer={new_price_offer!r}"
         )
 
     return ok_selected
@@ -433,7 +626,8 @@ def parse_product_page_one_item(
     query_name: str,
     expected_qty: Optional[int],
     qty_is_sum: bool,
-    timeout: int = 6
+    timeout: int = 6,
+    job_id: str | None = None,
 ) -> Tuple[bool, Dict]:
     """
     Возвращает (ok, item).
@@ -454,7 +648,7 @@ def parse_product_page_one_item(
         warning = "Уточните цену сами, могут быть неточности"
 
     if expected_qty is None:
-        price = get_product_page_price(driver,timeout=timeout)
+        price = get_product_page_price(driver, timeout=timeout, expected_qty=expected_qty)
         found_qty = extract_pack_qty_from_title(title)
         return True, {
             "input_name": query_name,
@@ -467,7 +661,7 @@ def parse_product_page_one_item(
 
     found_qty = extract_pack_qty_from_title(title)
     if found_qty == expected_qty:
-        price = get_product_page_price(driver, timeout=timeout)
+        price = get_product_page_price(driver, timeout=timeout, expected_qty=expected_qty)
         return True, {
             "input_name": query_name,
             "title": title,
@@ -477,11 +671,11 @@ def parse_product_page_one_item(
             "warning": warning
         }
     
-    if select_variant_qty(driver, expected_qty, timeout=timeout):
+    if select_variant_qty(driver, expected_qty, timeout=timeout, job_id=job_id):
         title_el = find_visible(driver, By.CSS_SELECTOR, "h1.ViewProductPage__title", timeout=timeout)
         title2 = (title_el.text or "").strip()
         found_qty2 = extract_pack_qty_from_title(title2)
-        price2 = get_product_page_price(driver, timeout=timeout)
+        price2 = get_product_page_price(driver, timeout=timeout, expected_qty=expected_qty)
 
         return True, {
             "input_name": query_name,
@@ -556,25 +750,85 @@ def parse_cards(driver, query) -> List[Dict]:
 # Public API for worker
 # ---------------------------
 
-def parse_one_query(driver, query_name: str, timeout, max_retries, expected_qty: Optional[int] = None, qty_is_sum: bool = False) -> Tuple[Outcome, List[Dict]]:
+def parse_one_query(
+    driver,
+    query_name: str,
+    timeout,
+    max_retries,
+    expected_qty: Optional[int] = None,
+    qty_is_sum: bool = False,
+    raw_input: Optional[str] = None,
+    job_id: Optional[str] = None,
+) -> Tuple[Outcome, List[Dict]]:
+    def log_parse(msg: str) -> None:
+        if not job_id:
+            return
+        from app.services.job_runner import job_log
+        job_log(job_id, msg)
+
     try:
         run_search_with_retry(driver, query_name, timeout=timeout, max_retries=max_retries)
 
+        page_type = "unknown"
+        if is_unexpected_error_page(driver):
+            page_type = "unexpected_error"
+        elif is_empty_results_page(driver):
+            page_type = "empty"
+        elif is_product_page(driver):
+            page_type = "product"
+        elif is_search_results_page(driver):
+            page_type = "search"
+
+        log_parse(
+            f"PARSE start: query={query_name!r} raw={raw_input!r} expected_qty={expected_qty!r} "
+            f"qty_is_sum={qty_is_sum!r} url={driver.current_url!r} page={page_type}"
+        )
+
         if is_empty_results_page(driver):
+            log_parse("PARSE context empty results page")
             return "not_found", []
         
         if is_product_page(driver):
+            try:
+                title_el = driver.find_elements(By.CSS_SELECTOR, "h1.ViewProductPage__title")
+                page_title = (title_el[0].text or "").strip() if title_el else ""
+            except Exception:
+                page_title = ""
+
+            variants = get_variants_from_product_page(driver)
+            variants_dump = [{"qty": v.qty, "selected": v.selected, "href": v.href} for v in variants]
+            log_parse(
+                f"PARSE context product: title={page_title!r} variants={variants_dump!r} "
+                f"price_visible={_get_visible_product_page_price(driver)!r} "
+                f"price_meta={_get_meta_product_page_price(driver)!r}"
+            )
+
             ok, item = parse_product_page_one_item(
                 driver,
                 query_name=query_name,
                 expected_qty=expected_qty,
                 qty_is_sum=qty_is_sum,
-                timeout=timeout
+                timeout=timeout,
+                job_id=job_id,
             )
             if ok:
                 return "matched", [item]
             else:
                 return "not_found", [item]
+
+        cards = driver.find_elements(By.CSS_SELECTOR, ".catalog-card.card-flex")
+        first_title = get_first_card_title(driver)
+        first_price = ""
+        if cards:
+            try:
+                price_els = cards[0].find_elements(By.CSS_SELECTOR, "span.moneyprice__content")
+                if price_els:
+                    first_price = (price_els[0].text or "").replace("\n", " ").strip()
+            except Exception:
+                first_price = ""
+        log_parse(
+            f"PARSE context search: cards={len(cards)} first_title={first_title!r} first_price={first_price!r}"
+        )
 
         items = parse_cards(driver,query=query_name)
         if items:
