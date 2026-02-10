@@ -53,20 +53,21 @@ def find_clickable(driver_or_el, by, value, timeout) -> w:
 
 def make_driver() -> webdriver.Chrome:
     """Создание дравера браузера"""
-    # options = Options()
-    # options.add_argument("--headless=new")
-    # options.add_argument("--no-sandbox")
-    # options.add_argument("--disable-dev-shm-usage")
-    # options.add_argument("--window-size=1400,900")
-    # options.binary_location = "/usr/bin/chromium-browser"
-    # service = Service("/usr/bin/chromedriver")
-
-    # return webdriver.Chrome(service=service, options=options)
     options = Options()
     options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1400,900")
+    options.binary_location = "/usr/bin/chromium-browser"
+    service = Service("/usr/bin/chromedriver")
 
-    return webdriver.Chrome(options=options)
+    return webdriver.Chrome(service=service, options=options)
+    
+    # options = Options()
+    # options.add_argument("--headless=new")
+    # options.add_argument("--window-size=1400,900")
+
+    # return webdriver.Chrome(options=options)
 
 
 # ---------------------------
@@ -216,6 +217,26 @@ def _extract_moneyprice_from_content_el(content_el) -> str:
     return _price_text_to_amount(content_el.text or "")
 
 
+def _has_unavailable_offer(driver) -> bool:
+    """Возвращает True, если на странице есть блок 'Нет в наличии'."""
+    for el in driver.find_elements(By.CSS_SELECTOR, ".ProductOffer__unavailable"):
+        try:
+            if el.is_displayed():
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _is_within_unavailable_offer(el) -> bool:
+    """Проверяет, что элемент находится внутри блока 'Нет в наличии'."""
+    try:
+        el.find_element(By.XPATH, "ancestor::*[contains(@class, 'ProductOffer__unavailable')]")
+        return True
+    except Exception:
+        return False
+
+
 def _extract_variant_qty_from_button(btn) -> Optional[int]:
     """Извлекает количество упаковки из кнопки варианта."""
     try:
@@ -271,6 +292,8 @@ def _get_selected_variant_component_price(driver, expected_qty: Optional[int] = 
 
 def _get_sidebar_offer_price(driver) -> str:
     """Возвращает цену из блока предложения в сайдбаре, если есть."""
+    if _has_unavailable_offer(driver):
+        return ""
     selectors = [
         ".ProductOffer__price span.moneyprice__content",
         ".ProductPanel span.moneyprice__content",
@@ -278,6 +301,8 @@ def _get_sidebar_offer_price(driver) -> str:
     for selector in selectors:
         for content_el in driver.find_elements(By.CSS_SELECTOR, selector):
             try:
+                if _is_within_unavailable_offer(content_el):
+                    continue
                 if not content_el.is_displayed():
                     continue
                 price = _extract_moneyprice_from_content_el(content_el)
@@ -288,12 +313,52 @@ def _get_sidebar_offer_price(driver) -> str:
     return ""
 
 
+def _get_unavailable_last_price(driver) -> str:
+    """Возвращает последнюю цену из блока `Нет в наличии`, если она показана."""
+    content_selectors = [
+        ".ProductOffer__unavailable .ProductOffer__lastprice span.moneyprice__content",
+        ".ProductOffer__lastprice span.moneyprice__content",
+    ]
+    for selector in content_selectors:
+        for content_el in driver.find_elements(By.CSS_SELECTOR, selector):
+            try:
+                price = _extract_moneyprice_from_content_el(content_el)
+                if price:
+                    return price
+            except Exception:
+                continue
+
+    # fallback: иногда moneyprice__content может быть скрыт/рендериться иначе,
+    # тогда пробуем читать текст контейнера последней цены целиком
+    for root in driver.find_elements(By.CSS_SELECTOR, ".ProductOffer__unavailable .ProductOffer__lastprice, .ProductOffer__lastprice"):
+        try:
+            price = _price_text_to_amount(root.text or "")
+            if price:
+                return price
+        except Exception:
+            continue
+
+    return ""
+
+
+def _is_product_unavailable(driver) -> bool:
+    """Возвращает True, если на product page отображается блок недоступности товара."""
+    for el in driver.find_elements(By.CSS_SELECTOR, ".ProductOffer__unavailable"):
+        try:
+            if el.is_displayed():
+                return True
+        except Exception:
+            continue
+    return False
+
 def _get_visible_product_page_price(driver, expected_qty: Optional[int] = None) -> str:
     """
     Возвращает цену из видимого блока товара на product page.
     Нужен как основной источник: meta[itemprop='price'] на сайте может
     отставать при переключении вариантов упаковки.
     """
+    if _has_unavailable_offer(driver):
+        return ""
     variant_component_price = _get_selected_variant_component_price(driver, expected_qty=expected_qty)
     if variant_component_price:
         return variant_component_price
@@ -310,6 +375,8 @@ def _get_visible_product_page_price(driver, expected_qty: Optional[int] = None) 
     for selector in selectors:
         for el in driver.find_elements(By.CSS_SELECTOR, selector):
             try:
+                if _is_within_unavailable_offer(el):
+                    continue
                 if not el.is_displayed():
                     continue
                 price = _price_text_to_amount(el.text or "")
@@ -459,6 +526,8 @@ def get_product_page_price(driver, timeout: int = 6, expected_qty: Optional[int]
     """
     Берём цену в приоритете из видимого блока, затем fallback на meta.
     """
+    if _has_unavailable_offer(driver):
+        return ""
     end = time.time() + timeout
     while time.time() < end:
         visible_price = _get_visible_product_page_price(driver, expected_qty=expected_qty)
@@ -468,6 +537,11 @@ def get_product_page_price(driver, timeout: int = 6, expected_qty: Optional[int]
         meta_price = _get_meta_product_page_price(driver)
         if meta_price:
             return meta_price
+
+        last_price = _get_unavailable_last_price(driver)
+        if last_price:
+            return last_price
+
         time.sleep(0.2)
     return ""
 
@@ -660,8 +734,18 @@ def parse_product_page_one_item(
     if qty_is_sum:
         warning = "Уточните цену сами, могут быть неточности"
 
+
+    def build_price_and_message() -> Tuple[str, str]:
+        """Читает цену и сообщение по текущему состоянию product page."""
+        unavailable = _is_product_unavailable(driver)
+        unavailable_price = _get_unavailable_last_price(driver) if unavailable else ""
+        price = unavailable_price or get_product_page_price(driver, timeout=timeout, expected_qty=expected_qty)
+        message = "Товара нет в наличии, указана последняя цена" if unavailable and price else ""
+        return price, message
+
+
     if expected_qty is None:
-        price = get_product_page_price(driver, timeout=timeout, expected_qty=expected_qty)
+        price, message = build_price_and_message()
         found_qty = extract_pack_qty_from_title(title)
         return True, {
             "input_name": query_name,
@@ -669,26 +753,28 @@ def parse_product_page_one_item(
             "price": price,
             "input_qty": expected_qty,
             "found_qty": found_qty,
-            "warning": warning
+            "warning": warning,
+            "message": message
         }
 
     found_qty = extract_pack_qty_from_title(title)
     if found_qty == expected_qty:
-        price = get_product_page_price(driver, timeout=timeout, expected_qty=expected_qty)
+        price, message = build_price_and_message()
         return True, {
             "input_name": query_name,
             "title": title,
             "price": price,
             "input_qty": expected_qty,
             "found_qty": found_qty,
-            "warning": warning
+            "warning": warning,
+            "message": message
         }
     
     if select_variant_qty(driver, expected_qty, timeout=timeout, job_id=job_id):
         title_el = find_visible(driver, By.CSS_SELECTOR, "h1.ViewProductPage__title", timeout=timeout)
         title2 = (title_el.text or "").strip()
         found_qty2 = extract_pack_qty_from_title(title2)
-        price2 = get_product_page_price(driver, timeout=timeout, expected_qty=expected_qty)
+        price2, message2 = build_price_and_message()
 
         return True, {
             "input_name": query_name,
@@ -696,7 +782,8 @@ def parse_product_page_one_item(
             "price": price2,
             "input_qty": expected_qty,
             "found_qty": found_qty2 if found_qty2 is not None else expected_qty,
-            "warning": warning
+            "warning": warning,
+            "message": message2
         }
 
     return False, {"input_name": query_name, "message": "Нет подходящего варианта", "input_qty": expected_qty, "warning": warning}
