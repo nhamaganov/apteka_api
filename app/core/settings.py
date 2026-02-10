@@ -3,7 +3,7 @@ import os
 def get_int(name: str, default: int) -> int:
     """Возвращает целочисленное значение переменной окружения или default."""
     try:
-        return int(os.environ.get(name, "".strip() or default))
+        return int((os.environ.get(name, "") or "").strip() or default)
     
     except Exception: 
         return default

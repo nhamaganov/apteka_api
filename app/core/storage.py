@@ -83,13 +83,19 @@ def list_jobs(limit: int = 20) -> List[Dict[str, Any]]:
         try:
             data = read_json(st)
             data["job_id"] = data.get("job_id") or p.name
-            data["created_at"] = datetime.fromisoformat(data["created_at"]).strftime("%d-%m-%Y %H:%M:%S")
+
+            created_at_iso = data.get("created_at", "")
+            created_at_dt = datetime.fromisoformat(created_at_iso)
+            data["created_at"] = created_at_dt.strftime("%d-%m-%Y %H:%M:%S")
+            data["_created_at_sort"] = created_at_dt
             jobs.append(data)
 
         except Exception:
             continue
 
-    jobs.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    jobs.sort(key=lambda x: x.get("_created_at_sort", datetime.min), reverse=True)
+    for job in jobs:
+        job.pop("_created_at_sort", None)
     return jobs[:limit]
 
 

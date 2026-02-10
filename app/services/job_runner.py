@@ -61,7 +61,7 @@ async def process_job(job_id: str) -> None:
             if not q_name:
                 status["progress"]["processed"] += 1
                 status["progress"]["not_found"] += 1
-                write_csv(status_path(job_id), status)
+                write_json(status_path(job_id), status)
                 continue
 
             job_log(job_id, f"QUERY start: {q_name!r} qty={q_qty!r} sum={q_sum} raw={raw!r}")
@@ -82,9 +82,12 @@ async def process_job(job_id: str) -> None:
                 for it in items[:3]:
                     job_log(
                         job_id,
-                        f"item: title={it.get('title')!r} price={it.get('price')!r}"
-                        f"item: title={it.get('input_qty')!r} price={it.get('found_qty')!r}"
-                        f"item: title={it.get('warning')!r} price={it.get('message')!r}"
+                        f"item: title={it.get('title')!r} "
+                        f"price={it.get('price')!r} "
+                        f"input_qty={it.get('input_qty')!r} "
+                        f"found_qty={it.get('found_qty')!r} "
+                        f"warning={it.get('warning')!r} "
+                        f"message={it.get('message')!r}"
                     )
             if outcome == "matched":
                 status["progress"]["matched"] += 1
