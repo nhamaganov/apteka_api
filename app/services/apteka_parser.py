@@ -818,34 +818,102 @@ def parse_product_page(driver, query, timeout) -> List[Dict]:
     return [{"input_name": query, "title": title, "price": str(price)}]
 
 
-def parse_cards(driver, query) -> List[Dict]:
-    """Парсинг карточек на текущей странице"""
+def _collect_matching_card_links(driver, query_name: str) -> List[Dict[str, str]]:
+    """Собирает ссылки карточек, названия которых подходят по нестрогому совпадению."""
     cards = driver.find_elements(By.CSS_SELECTOR, ".catalog-card.card-flex")
-    items = []
-    
+    result: List[Dict[str, str]] = []
+
     for card in cards:
         try:
             title_el = card.find_element(By.CSS_SELECTOR, "span.catalog-card__name.emphasis")
-            title = title_el.get_attribute("title") or title_el.text.strip()
+            title = (title_el.get_attribute("title") or title_el.text or "").strip()
             if not title or "набор" in title.lower():
                 continue
 
-            if not is_name_match(query,title):
+            if not is_name_match(query_name, title):
                 continue
 
-            price = ""
-            price_els = card.find_elements(By.CSS_SELECTOR, "span.moneyprice__content")
-            if price_els:
-                price = price_els[0].text.replace("\n", "").replace(" ", "").strip()
-            
-            items.append({"input_name": query, "title": title, "price": str(price)})
-        
+            href = ""
+            link_els = card.find_elements(By.CSS_SELECTOR, "a[href]")
+            for link in link_els:
+                href_raw = (link.get_attribute("href") or "").strip()
+                if not href_raw:
+                    continue
+                href = href_raw
+                break
+
+            if href:
+                result.append({"title": title, "href": href})
+
         except StaleElementReferenceException:
             continue
         except Exception:
             continue
-    
-    return items
+
+    return result
+
+
+def parse_cards(
+    driver,
+    query_name: str,
+    expected_qty: Optional[int],
+    qty_is_sum: bool,
+    timeout: int,
+    job_id: Optional[str] = None,
+) -> List[Dict]:
+    """
+    В ветке search заходит в каждую подходящую карточку и применяет
+    тот же алгоритм, что и parse_product_page_one_item.
+    Возвращает первый точный найденный вариант.
+    """
+    def log_parse(msg: str) -> None:
+        if not job_id:
+            return
+        from app.services.job_runner import job_log
+        job_log(job_id, msg)
+
+    search_url = driver.current_url
+    candidates = _collect_matching_card_links(driver, query_name)
+    log_parse(f"PARSE search candidates={len(candidates)}")
+
+    for idx, candidate in enumerate(candidates, start=1):
+        href = candidate["href"]
+        title = candidate["title"]
+        log_parse(f"PARSE search candidate[{idx}] title={title!r} href={href!r}")
+
+        try:
+            driver.get(href)
+
+            if not is_product_page(driver):
+                log_parse(f"PARSE search candidate[{idx}] skip: not a product page")
+            else:
+                ok, item = parse_product_page_one_item(
+                    driver,
+                    query_name=query_name,
+                    expected_qty=expected_qty,
+                    qty_is_sum=qty_is_sum,
+                    timeout=timeout,
+                    job_id=job_id,
+                )
+                if ok:
+                    log_parse(f"PARSE search candidate[{idx}] matched")
+                    return [item]
+
+                log_parse(
+                    f"PARSE search candidate[{idx}] not matched: message={item.get('message')!r}"
+                )
+
+        except Exception as e:
+            log_parse(f"PARSE search candidate[{idx}] failed: {e}")
+
+        # Возвращаемся к поисковой выдаче и продолжаем со следующей карточки.
+        driver.get(search_url)
+        try:
+            find(driver, By.CSS_SELECTOR, ".catalog-card.card-flex", timeout=timeout)
+        except Exception:
+            pass
+
+    return []
 
 # ---------------------------
 # Public API for worker
@@ -933,7 +1001,16 @@ def parse_one_query(
             f"PARSE context search: cards={len(cards)} first_title={first_title!r} first_price={first_price!r}"
         )
 
-        items = parse_cards(driver,query=query_name)
+
+        items = parse_cards(
+            driver,
+            query_name=query_name,
+            expected_qty=expected_qty,
+            qty_is_sum=qty_is_sum,
+            timeout=timeout,
+            job_id=job_id,
+        )
+
         if items:
             return "matched", items
         return "not_found", []
