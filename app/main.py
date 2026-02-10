@@ -13,6 +13,7 @@ from app.web.routes import router as web_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Управляет жизненным циклом приложения для запуска и остановки воркера."""
     ensure_job_store()
 
     app.state.queue = JobQueue()
@@ -37,6 +38,7 @@ app.include_router(web_router)
 
 @app.get("/health")
 def health():
+    """Простой health-check эндпоинт."""
     return {"status": "ok"}
 
 app.include_router(jobs_router, prefix="/jobs", tags=["jobs"])

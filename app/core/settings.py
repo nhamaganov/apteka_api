@@ -1,6 +1,7 @@
 import os
 
 def get_int(name: str, default: int) -> int:
+    """Возвращает целочисленное значение переменной окружения или default."""
     try:
         return int(os.environ.get(name, "".strip() or default))
     
@@ -9,6 +10,7 @@ def get_int(name: str, default: int) -> int:
     
 
 def get_float(name: str, default: float) -> float:
+    """Возвращает число с плавающей точкой из переменной окружения или default."""
     try:
         return float(os.environ.get(name, "").strip() or default) 
     except Exception:

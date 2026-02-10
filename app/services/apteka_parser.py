@@ -86,14 +86,17 @@ def is_empty_results_page(driver) -> bool:
 
 
 def is_product_page(driver) -> bool:
+    """Возвращает True, если текущая страница похожа на карточку товара."""
     return bool(driver.find_elements(By.CSS_SELECTOR, "h1.ViewProductPage__title"))
 
 
 def is_search_results_page(driver) -> bool:
+    """Возвращает True, если текущая страница похожа на результаты поиска."""
     return bool(driver.find_elements(By.CSS_SELECTOR, ".catalog-card.card-flex"))
 
 
 def get_first_card_title(driver) -> str:
+    """Возвращает заголовок первой карточки результата поиска."""
     cards = driver.find_elements(By.CSS_SELECTOR, ".catalog-card.card-flex")
     if not cards:
         return ""
@@ -169,6 +172,7 @@ def set_search_query(driver, query, timeout) -> None:
 
 
 def format_price_2dp(raw: str) -> str:
+    """Нормализует сырой текст цены в строку с двумя знаками после запятой."""
     if raw is None:
         return ""
     s = str(raw).replace("\xa0", " ").strip()
@@ -182,6 +186,7 @@ def format_price_2dp(raw: str) -> str:
 
 
 def _price_text_to_amount(raw: str) -> str:
+    """Извлекает числовое значение из сырого текста цены."""
     if raw is None:
         return ""
     text = str(raw).replace("\n", " ").replace("\xa0", " ").strip()
@@ -212,6 +217,7 @@ def _extract_moneyprice_from_content_el(content_el) -> str:
 
 
 def _extract_variant_qty_from_button(btn) -> Optional[int]:
+    """Извлекает количество упаковки из кнопки варианта."""
     try:
         qty_b = btn.find_elements(By.CSS_SELECTOR, ".variantButton__descr em + b")
         if qty_b:
@@ -224,6 +230,7 @@ def _extract_variant_qty_from_button(btn) -> Optional[int]:
 
 
 def _get_selected_variant_component_price(driver, expected_qty: Optional[int] = None) -> str:
+    """Возвращает цену, показанную в выбранной кнопке варианта."""
     buttons = driver.find_elements(By.CSS_SELECTOR, ".ProductVariants .variantButton")
     if not buttons:
         return ""
@@ -263,6 +270,7 @@ def _get_selected_variant_component_price(driver, expected_qty: Optional[int] = 
 
 
 def _get_sidebar_offer_price(driver) -> str:
+    """Возвращает цену из блока предложения в сайдбаре, если есть."""
     selectors = [
         ".ProductOffer__price span.moneyprice__content",
         ".ProductPanel span.moneyprice__content",
@@ -315,6 +323,7 @@ def _get_visible_product_page_price(driver, expected_qty: Optional[int] = None) 
 
 
 def _get_meta_product_page_price(driver) -> str:
+    """Возвращает цену товара из meta-тега, если он есть."""
     meta = driver.find_elements(By.CSS_SELECTOR, "meta[itemprop='price']")
     if not meta:
         return ""
@@ -323,6 +332,7 @@ def _get_meta_product_page_price(driver) -> str:
 
 
 def _normalized_product_url(url: str) -> str:
+    """Нормализует URL товара для сравнения."""
     s = urlsplit(url)
     path = s.path or "/"
     if not path.endswith("/"):
@@ -331,6 +341,7 @@ def _normalized_product_url(url: str) -> str:
 
 
 def _wait_navigation_to_target(driver, target_href: str, timeout: int = 10) -> bool:
+    """Ждёт, пока браузер перейдёт по ожидаемому URL."""
     target_norm = _normalized_product_url(target_href)
     end = time.time() + timeout
     while time.time() < end:
@@ -500,6 +511,7 @@ def get_price_marker(driver) -> str:
 
 
 def wait_price_updated(driver, old_marker: str, timeout: int = 8) -> bool:
+    """Ждёт изменения маркера цены товара."""
     end = time.time() + timeout
     while time.time() < end:
         m = get_price_marker(driver)
@@ -530,6 +542,7 @@ def select_variant_qty(
     timeout: int = 8,
     job_id: str | None = None,
 ) -> bool:
+    """Выбирает вариант упаковки, переходя по его URL."""
     from app.services.job_runner import job_log
     
     variants = get_variants_from_product_page(driver)
@@ -690,6 +703,7 @@ def parse_product_page_one_item(
 
 
 def parse_product_page(driver, query, timeout) -> List[Dict]:
+    """Парсит страницу товара и возвращает подходящие позиции."""
     vars_ = get_variants_from_product_page(driver)
     print("BEFORE:", [(v.qty, v.selected) for v in vars_])
 
@@ -760,7 +774,9 @@ def parse_one_query(
     raw_input: Optional[str] = None,
     job_id: Optional[str] = None,
 ) -> Tuple[Outcome, List[Dict]]:
+    """Парсит один запрос и возвращает результат с найденными позициями."""
     def log_parse(msg: str) -> None:
+        """Пишет события парсера в лог текущей задачи."""
         if not job_id:
             return
         from app.services.job_runner import job_log

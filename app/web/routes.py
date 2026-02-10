@@ -20,6 +20,7 @@ templates = Jinja2Templates(directory="app/web/templates")
 
 @router.get("/", response_class=HTMLResponse)
 def index(request: Request):
+    """Рендерит страницу со списком задач."""
     jobs = list_jobs()
     
 
@@ -34,6 +35,7 @@ def index(request: Request):
 
 @router.post("/upload")
 async def upload(request: Request, file: UploadFile = File(...)):
+    """Обрабатывает загрузку Excel в UI и ставит задачу в очередь."""
     ensure_job_store()
 
     ext = Path(file.filename).suffix.lower()
@@ -78,6 +80,7 @@ async def upload(request: Request, file: UploadFile = File(...)):
 
 @router.get("/ui/{job_id}", response_class=HTMLResponse)
 def job_page(request: Request, job_id: str):
+    """Рендерит страницу прогресса задачи."""
     name = None
     try:
         st = read_json(status_path(job_id))
@@ -90,6 +93,7 @@ def job_page(request: Request, job_id: str):
 
 @router.post("/ui/{job_id}/delete")
 def delete_job_ui(job_id: str):
+    """Удаляет завершённую задачу и редиректит на главную."""
     stp = status_path(job_id)
     if not stp.exists():
         return RedirectResponse("/", status_code=303)

@@ -11,6 +11,7 @@ from app.services.apteka_parser import make_driver, recover_to_home, close_modal
 
 
 async def process_job(job_id: str) -> None:
+    """Запускает полный цикл парсинга для одной задачи."""
     status = read_json(status_path(job_id))
     status["status"] = "running"
     status["started_at"] = now_iso()
@@ -138,6 +139,7 @@ async def process_job(job_id: str) -> None:
 
 
 async def worker_loop(queue: JobQueue, stop_event: asyncio.Event) -> None:
+    """Непрерывно обрабатывает задачи из очереди до остановки."""
     while not stop_event.is_set():
         try:
             job_id = await asyncio.wait_for(queue.dequeue(), timeout=0.5)
@@ -151,6 +153,7 @@ async def worker_loop(queue: JobQueue, stop_event: asyncio.Event) -> None:
 
 
 def job_log(job_id: str, msg: str) -> None:
+    """Добавляет строку в лог задачи."""
     p = log_path(job_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     line = f"{now_iso()} | {msg}\n"

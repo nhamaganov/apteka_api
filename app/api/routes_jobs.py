@@ -82,6 +82,7 @@ async def create_job(request: Request, file: UploadFile = File(...)):
 
 @router.get("/{job_id}", response_model=JobStatus)
 def get_job_status(job_id: str):
+    """Возвращает текущий статус задачи."""
     p = status_path(job_id)
     if not p.exists():
         raise HTTPException(status_code=404, detail="Job not found")
@@ -91,6 +92,7 @@ def get_job_status(job_id: str):
 
 @router.get("/{job_id}/result")
 def get_job_result(job_id: str):
+    """Возвращает JSON-результат для задачи."""
     p = result_path(job_id)
     if not p.exists():
         raise HTTPException(status_code=404, detail="Job not found")
@@ -99,6 +101,7 @@ def get_job_result(job_id: str):
 
 @router.get("/{job_id}/download")
 def download_job_csv(job_id: str):
+    """Отдаёт CSV-результаты для завершённой задачи."""
     st_path = status_path(job_id)
     if not st_path.exists():
         raise HTTPException(status_code=404, detail="Job not found")
@@ -120,6 +123,7 @@ def download_job_csv(job_id: str):
 
 @router.get("/{job_id}/log")
 def get_job_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
+    """Возвращает последние строки лога задачи."""
     p = log_path(job_id)
     if not p.exists():
         return {"job_id": job_id, "lines": []}
@@ -134,6 +138,7 @@ def get_job_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
 
 @router.post("/{job_id}/cancel")
 def cancel_job(job_id: str):
+    """Отмечает задачу как отменённую, если она в очереди/работе."""
     p = status_path(job_id)
     if not p.exists():
         raise HTTPException(status_code=404, detail="Job not found")
@@ -150,6 +155,7 @@ def cancel_job(job_id: str):
 
 @router.post("/{job_id}/delete")
 def delete_job_endpoint(job_id: str):
+    """Удаляет завершённую задачу и её файлы."""
     p = status_path(job_id)
     if not p.exists():
         raise HTTPException(status_code=404, detail="Job not found")
