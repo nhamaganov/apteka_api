@@ -11,13 +11,16 @@ MODIFIERS = {"микро", "плюс", "мини", "форте", "экстра",
 
 
 def modifiers(tokens: set[str]) -> set[str]:
+    """Возвращает модификаторы, присутствующие в наборе токенов."""
     return tokens & MODIFIERS
 
 
 def cut_before_bracket(name: str) -> str:
+    """Возвращает часть строки до первой открывающей скобки."""
     return name.split("(", 1)[0].strip()
 
 def load_products_from_xls(path: str) -> list[str]:
+    """Загружает названия товаров из Excel-файла."""
     df = pd.read_excel(path, header=None)
 
     header_row = header_col = None
@@ -46,6 +49,7 @@ def load_products_from_xls(path: str) -> list[str]:
     return products
 
 def build_title_quantity_dict(items: list[str]):
+    """Строит словарь соответствий названий и извлечённых количеств."""
     result = defaultdict(list)
 
     for text in items:
@@ -77,6 +81,7 @@ def extract_quantity(text: str) -> int | None:
 
 
 def normalize(s: str) -> str:
+    """Нормализует строку для нестрогого сравнения."""
     if not s:
         return ""
     s = s.strip().lower().replace("ё", "е")
@@ -135,5 +140,3 @@ def is_name_match(xls_name: str, site_title: str,
 
     score2 = fuzz.partial_ratio(a, b)
     return score2 >= min_partial
-
-
