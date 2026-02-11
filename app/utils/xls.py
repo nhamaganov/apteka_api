@@ -3,6 +3,23 @@ from typing import Optional, Tuple
 import pandas as pd
 
 
+def build_query_name(raw: str) -> str:
+
+    base_name = raw.split("(", 1)[0].strip()
+    if not base_name:
+        return ""
+
+    normalized = base_name.lower().replace("ё", "е")
+    if "линдинет" not in normalized:
+        return base_name
+    
+    variant_match = re.search(r"\b(20|30)\b", raw)
+    if not variant_match:
+        return base_name
+    
+    return f"{base_name} {variant_match.group(1)}"
+
+
 def extract_queries_from_excel(path: str) -> list[dict]:
     """Из передаваемого excel-файла возвращает все названия и количества препаратов"""
     df = pd.read_excel(path, header=None)
@@ -31,7 +48,7 @@ def extract_queries_from_excel(path: str) -> list[dict]:
     queries: list[dict] = []
 
     for raw in col.tolist():
-        name = raw.split("(", 1)[0].strip()
+        name = build_query_name(raw)
         if not name:
             continue
         

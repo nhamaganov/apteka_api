@@ -111,6 +111,15 @@ def extract_base_name(raw: str) -> str:
     return s
 
 
+def extract_lindinet_variant(raw: str) -> str | None:
+
+    s = normalize(raw)
+    if "линдинет" not in s:
+        return None
+    match = re.search(r"\b(20|30)\b", s)
+    return match.group(1) if match else None
+
+
 def is_name_match(xls_name: str, site_title: str,
                   min_token_set: int = 93,
                   min_partial: int = 95) -> bool:
@@ -124,6 +133,11 @@ def is_name_match(xls_name: str, site_title: str,
 
     if not a or not b:
         return False
+
+    lindinet_xls = extract_lindinet_variant(xls_name)
+    lindinet_site = extract_lindinet_variant(site_title)
+    if lindinet_xls is not None or lindinet_site is not None:
+        return lindinet_xls is not None and lindinet_xls == lindinet_site
 
     a_tokens = set(a.split())
     b_tokens = set(b.split())
