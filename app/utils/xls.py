@@ -70,6 +70,106 @@ def extract_queries_from_excel(path: str) -> list[dict]:
     return queries
 
 
+def build_enriched_csv(path: str, out_path: str, items: list[dict]) -> None:
+    """Дополняет исходную таблицу результатами парсинга и сохраняет как CSV."""
+    df = pd.read_excel(path, header=None)
+
+    header_row = header_col = None
+    for r in range(df.shape[0]):
+        for c in range(df.shape[1]):
+            cell = str(df.iat[r, c]).lower()
+            if "наименование товара" in cell:
+                header_row, header_col = r, c
+                break
+        if header_row is not None:
+            break
+
+    if header_row is None:
+        raise ValueError("Не найден столбец 'Наименование товара'")
+
+    def _is_empty(v) -> bool:
+        if pd.isna(v):
+            return True
+        return str(v).strip() == ""
+
+    def _key(name: str) -> str:
+        return (name or "").strip().lower().replace("ё", "е")
+
+    by_input_name: dict[str, list[dict]] = {}
+    for item in items:
+        key = _key(str(item.get("input_name") or ""))
+        if not key:
+            continue
+        by_input_name.setdefault(key, []).append(item)
+
+    insert_col = header_col + 1
+    while insert_col < df.shape[1] and not _is_empty(df.iat[header_row, insert_col]):
+        insert_col += 1
+
+    extra_headers = [
+        "Найденный товар",
+        "Цена",
+        "Кол-во (в запросе)",
+        "Кол-во (найдено)",
+        "Предупреждение",
+        "Сообщение",
+    ]
+
+    required_cols = insert_col + len(extra_headers)
+    while df.shape[1] < required_cols:
+        df[df.shape[1]] = None
+
+    for offset, name in enumerate(extra_headers):
+        df.iat[header_row, insert_col + offset] = name
+
+    for r in range(header_row + 1, df.shape[0]):
+        raw = df.iat[r, header_col]
+        if _is_empty(raw):
+            continue
+
+        raw_text = str(raw)
+        query_name = build_query_name(raw_text)
+        if not query_name:
+            continue
+
+        query_qty, _ = extract_qty_from_xls_row(raw_text)
+        candidates = by_input_name.get(_key(query_name), [])
+        if not candidates:
+            continue
+
+        item = None
+        if query_qty is not None:
+            for candidate in candidates:
+                if candidate.get("input_qty") == query_qty:
+                    item = candidate
+                    break
+            if item is None:
+                # Если в строке есть явное количество, не подставляем запись
+                # с другим количеством, чтобы не перепутать соседние позиции.
+                continue
+        else:
+            for candidate in candidates:
+                if candidate.get("input_qty") is None:
+                    item = candidate
+                    break
+            if item is None:
+                item = candidates[0]
+
+        row_values = [
+            item.get("title", ""),
+            item.get("price", ""),
+            item.get("input_qty", ""),
+            item.get("found_qty", ""),
+            item.get("warning", ""),
+            item.get("message", ""),
+        ]
+        for offset, value in enumerate(row_values):
+            df.iat[r, insert_col + offset] = value
+
+    df.to_csv(out_path, sep=";", header=False, index=False, encoding="utf-8-sig")
+
+
+
 def extract_qty_from_xls_row(text: str) -> Tuple[Optional[int], bool]:
     """Возвращает количество из передаваемого текста"""
     if not text:

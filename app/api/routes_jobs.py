@@ -1,7 +1,7 @@
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Query, UploadFile, File, HTTPException, Request, Body
+from fastapi import APIRouter, Query, UploadFile, File, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from app.core.naming import make_display_name
@@ -113,7 +113,7 @@ def download_job_csv(job_id: str):
     p = result_csv_path(job_id)
     if not p.exists():
         raise HTTPException(status_code=404, detail="CSV not found")
-    
+
     return FileResponse(
         path=str(p),
         media_type="text/csv",

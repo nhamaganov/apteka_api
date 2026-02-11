@@ -2,10 +2,11 @@ import asyncio
 from typing import Dict, List
 
 from app.core.settings import PARSE_MAX_RETRIES, PARSE_PAUSE, PARSE_TIMEOUT
-from app.core.storage import log_path, result_csv_path, status_path, result_path, queries_path, read_json, write_json
+from app.core.storage import log_path, result_csv_path, status_path, result_path, queries_path, read_json, write_json, upload_path
 from app.core.queue import JobQueue
 from app.core.time import now_iso
 from app.core.utils import write_csv
+from app.utils.xls import build_enriched_csv
 from app.services.apteka_parser import make_driver, recover_to_home, close_modal_if_any, parse_one_query
 
 
@@ -42,7 +43,7 @@ async def process_job(job_id: str) -> None:
                 write_json(status_path(job_id), status)
 
                 write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "cancelled": True})
-                write_csv(result_csv_path(job_id), all_items)
+                _write_result_csv(job_id, all_items, status)
 
                 job_log(job_id, "JOB cancelled by user")
                 return
@@ -113,7 +114,7 @@ async def process_job(job_id: str) -> None:
 
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items})
 
-        write_csv(result_csv_path(job_id), all_items)
+        _write_result_csv(job_id, all_items, status)
 
         status["status"] = "done"
         status["finished_at"] = now_iso()
@@ -129,7 +130,7 @@ async def process_job(job_id: str) -> None:
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "error": str(e)})
 
         try:
-            write_csv(result_csv_path(job_id), all_items)
+            _write_result_csv(job_id, all_items, status)
         except Exception:
             pass
 
@@ -162,3 +163,18 @@ def job_log(job_id: str, msg: str) -> None:
     line = f"{now_iso()} | {msg}\n"
     with p.open("a", encoding="utf-8") as f:
         f.write(line)
+
+
+def _write_result_csv(job_id: str, all_items: List[Dict], status: Dict) -> None:
+    """Пишет итоговый CSV: сначала пытается обогатить исходную таблицу, иначе пишет плоский CSV."""
+    filename = status.get("filename")
+    if filename:
+        src = upload_path(job_id, filename)
+        if src.exists():
+            try:
+                build_enriched_csv(str(src), str(result_csv_path(job_id)), all_items)
+                return
+            except Exception as exc:
+                job_log(job_id, f"Failed to build enriched csv: {exce}")
+
+    write_csv(result_csv_path(job_id), all_items)
