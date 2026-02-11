@@ -38,8 +38,13 @@
           {% for j in jobs %}
             <tr>
               <td class="mono">
+                {% set job_name = j.display_name or j.filename %}
                 <a href="/ui/{{ j.job_id }}">
-                  {{ j.display_name or j.filename }}
+                  {% if job_name and (job_name|length > 15) %}
+                    <span title="{{ job_name }}">{{ job_name[:15] }}...</span>
+                  {% else %}
+                    {{ job_name }}
+                  {% endif %}
                 </a>
               </td>
         
@@ -66,17 +71,29 @@
         
               <td class="mono">{{ j.created_at }}</td>
         
-              <td>
+              <td class="actions-cell">
                 {% if j.status in ["done", "failed", "cancelled"] %}
-                  <a class="btn-sm" href="/jobs/{{ j.job_id }}/download">Скачать</a>
+                  <div class="actions-inline">
+                    <a class="btn-sm" href="/jobs/{{ j.job_id }}/download">Скачать</a>
 
-                  <form action="/ui/{{ j.job_id }}/delete" method="post" style="display:inline"
-                        onsubmit="return confirm('Удалить задачу {{ j.job_id }}?');">
-                    <button class="btn-sm danger" type="submit">Удалить</button>
-                  </form>
+                    <span class="btn-sm disabled">Остановить</span>
+
+                    <form action="/ui/{{ j.job_id }}/delete" method="post" style="display:inline"
+                          onsubmit="return confirm('Удалить задачу {{ j.job_id }}?');">
+                      <button class="btn-sm danger" type="submit">Удалить</button>
+                    </form>
+                  </div>
                 {% else %}
-                  <span class="btn-sm disabled">Скачать</span>
-                  <span class="btn-sm disabled">Удалить</span>
+                  <div class="actions-inline">
+                    <span class="btn-sm disabled">Скачать</span>
+
+                    <form action="/jobs/{{ j.job_id }}/cancel" method="post" style="display:inline"
+                          onsubmit="return confirm('Остановить задачу {{ j.job_id }}?');">
+                      <button class="btn-sm danger" type="submit">Остановить</button>
+                    </form>
+
+                    <span class="btn-sm disabled">Удалить</span>
+                  </div>
                 {% endif %}
               </td>
             </tr>

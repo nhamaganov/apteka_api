@@ -235,6 +235,20 @@ button.btn-sm:disabled {
 .tbl td a { text-decoration: none; }
 .tbl td a:hover { text-decoration: underline; }
 
+.actions-cell {
+  vertical-align: middle;
+}
+
+.actions-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.actions-inline .btn-sm {
+  margin-right: 0;
+}
+
 /* narrow columns (optional: add class to td/th) */
 .tbl .col-actions { width: 140px; }
 .tbl .col-status { width: 110px; }
