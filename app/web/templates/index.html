@@ -17,10 +17,17 @@
   <div class="wrap">
     <h1>Загрузка файла</h1>
 
-    <form action="/upload" method="post" enctype="multipart/form-data">
-      <input type="file" name="file" accept=".xls,.xlsx" required />
-      <button type="submit">Запустить парсинг</button>
-    </form>
+    <div class="box upload-panel">
+      <form class="upload-form" action="/upload" method="post" enctype="multipart/form-data">
+        <input id="uploadFile" class="file-input" type="file" name="file" accept=".xls,.xlsx" required />
+        <label for="uploadFile" class="btn file-picker">Выбрать файл</label>
+        <span id="selectedFileName" class="selected-file">Файл не выбран</span>
+        <button id="startParsingBtn" class="btn primary upload-submit" type="submit" disabled>
+          Запустить парсинг
+        </button>
+      </form>
+      <p class="hint">Поддерживаются файлы Excel формата .xls и .xlsx.</p>
+    </div>
 
     <h2>Последние задачи</h2>
     {% if jobs and jobs|length > 0 %}
@@ -108,5 +115,24 @@
       После загрузки откроется страница с прогрессом. По завершении можно скачать CSV.
     </p>
   </div>
+
+  <script>
+    const uploadInput = document.getElementById("uploadFile");
+    const fileNameLabel = document.getElementById("selectedFileName");
+    const startButton = document.getElementById("startParsingBtn");
+
+    uploadInput.addEventListener("change", () => {
+      const file = uploadInput.files && uploadInput.files[0];
+      if (file) {
+        fileNameLabel.textContent = file.name;
+        fileNameLabel.classList.add("selected");
+        startButton.disabled = false;
+      } else {
+        fileNameLabel.textContent = "Файл не выбран";
+        fileNameLabel.classList.remove("selected");
+        startButton.disabled = true;
+      }
+    });
+  </script>
 </body>
 </html>

@@ -150,6 +150,17 @@ button.btn-sm:active {
   background: rgba(37,99,235,0.18);
 }
 
+.btn.primary {
+  background: linear-gradient(135deg, #93c5fd, #bfdbfe);
+  color: #1e3a8a;
+  border-color: rgba(96, 165, 250, 0.55);
+  box-shadow: 0 6px 14px rgba(96, 165, 250, 0.2);
+}
+
+.btn.primary:hover {
+  background: linear-gradient(135deg, #7dd3fc, #a5b4fc);
+}
+
 /* danger */
 .btn.danger, .btn-sm.danger {
   border-color: rgba(239,68,68,0.25);
@@ -256,6 +267,54 @@ button.btn-sm:disabled {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+/* ---------- Upload block ---------- */
+.upload-panel {
+  padding: 16px;
+}
+
+.upload-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.file-picker {
+  min-width: 132px;
+}
+
+.selected-file {
+  flex: 1;
+  min-width: 160px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px dashed rgba(15, 23, 42, 0.2);
+  background: rgba(15, 23, 42, 0.02);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.selected-file.selected {
+  color: var(--text);
+  border-color: rgba(37, 99, 235, 0.4);
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.upload-submit {
+  min-width: 170px;
 }
 
 .actions-inline .btn-sm {
