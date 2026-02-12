@@ -2,7 +2,9 @@ import re
 from typing import Optional, Tuple
 import pandas as pd
 from openpyxl import Workbook
-from openpyxl.styles import Border, Side
+from openpyxl.styles import Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
 
 
 def build_query_name(raw: str) -> str:
@@ -189,11 +191,28 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
     source_side = Side(style="thin", color="000000")
     parsed_side = Side(style="medium", color="1F4E78")
 
+    base_alignment = Alignment(vertical="top", wrap_text=True)
+
     for row_idx in range(df.shape[0]):
         for col_idx in range(df.shape[1]):
             value = df.iat[row_idx, col_idx]
             cell = ws.cell(row=row_idx + 1, column=col_idx + 1)
             cell.value = "" if pd.isna(value) else value
+            cell.alignment = base_alignment
+
+    def _max_line_len(value: object) -> int:
+        text = "" if pd.isna(value) else str(value)
+        if not text:
+            return 0
+        return max((len(line) for line in text.splitlines()), default=0)
+
+    for col_idx in range(df.shape[1]):
+        max_len = 0
+        for row_idx in range(df.shape[0]):
+            max_len = max(max_len, _max_line_len(df.iat[row_idx, col_idx]))
+
+        width = min(max(max_len + 2, 10), 80)
+        ws.column_dimensions[get_column_letter(col_idx + 1)].width = width
 
     def _apply_outline(min_row: int, max_row: int, min_col: int, max_col: int, side: Side) -> None:
         if min_row > max_row or min_col > max_col:
@@ -243,7 +262,7 @@ def build_flat_xlsx(out_path: str, items: list[dict]) -> None:
     columns = ["input_name", "title", "price", "input_qty", "found_qty", "warning", "message"]
     df = pd.DataFrame(items, columns=columns)
     df.to_excel(out_path, index=False)
-    
+
 
 def extract_qty_from_xls_row(text: str) -> Tuple[Optional[int], bool]:
     """Возвращает количество из передаваемого текста"""
