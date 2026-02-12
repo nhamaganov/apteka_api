@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 
 from app.core.naming import make_display_name
 from app.core.storage import (
-    ensure_job_store, job_dir, log_path, result_csv_path, upload_path, status_path, result_path, write_json, read_json, queries_path
+    ensure_job_store, job_dir, log_path, result_file_path, upload_path, status_path, result_path, write_json, read_json, queries_path
 )
 from app.core.models import JobProgress, JobStatus
 from app.core.time import now_iso
@@ -100,8 +100,8 @@ def get_job_result(job_id: str):
 
 
 @router.get("/{job_id}/download")
-def download_job_csv(job_id: str):
-    """Отдаёт CSV-результаты для завершённой задачи."""
+def download_job_result(job_id: str):
+    """Отдаёт XLSX-результаты для завершённой задачи."""
     st_path = status_path(job_id)
     if not st_path.exists():
         raise HTTPException(status_code=404, detail="Job not found")
@@ -110,14 +110,14 @@ def download_job_csv(job_id: str):
     if status.get("status") not in {"done", "failed", "cancelled"}:
         raise HTTPException(status_code=409, detail="Result not ready yet")
     
-    p = result_csv_path(job_id)
+    p = result_file_path(job_id)
     if not p.exists():
-        raise HTTPException(status_code=404, detail="CSV not found")
+        raise HTTPException(status_code=404, detail="Result file not found")
 
     return FileResponse(
         path=str(p),
-        media_type="text/csv",
-        filename=f"{job_id}.csv"
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=f"{job_id}.xlsx"
     )
 
 

@@ -1,6 +1,8 @@
 import re
 from typing import Optional, Tuple
 import pandas as pd
+from openpyxl import Workbook
+from openpyxl.styles import Border, Side
 
 
 def build_query_name(raw: str) -> str:
@@ -70,8 +72,8 @@ def extract_queries_from_excel(path: str) -> list[dict]:
     return queries
 
 
-def build_enriched_csv(path: str, out_path: str, items: list[dict]) -> None:
-    """Дополняет исходную таблицу результатами парсинга и сохраняет как CSV."""
+def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
+    """Дополняет исходную таблицу результатами парсинга и сохраняет как XLSX."""
     df = pd.read_excel(path, header=None)
 
     header_row = header_col = None
@@ -181,9 +183,67 @@ def build_enriched_csv(path: str, out_path: str, items: list[dict]) -> None:
         for offset, value in enumerate(row_values):
             df.iat[r, insert_col + offset] = value
 
-    df.to_csv(out_path, sep=";", header=False, index=False, encoding="utf-8-sig")
+    wb = Workbook()
+    ws = wb.active
+
+    source_side = Side(style="thin", color="000000")
+    parsed_side = Side(style="medium", color="1F4E78")
+
+    for row_idx in range(df.shape[0]):
+        for col_idx in range(df.shape[1]):
+            value = df.iat[row_idx, col_idx]
+            cell = ws.cell(row=row_idx + 1, column=col_idx + 1)
+            cell.value = "" if pd.isna(value) else value
+
+    def _apply_outline(min_row: int, max_row: int, min_col: int, max_col: int, side: Side) -> None:
+        if min_row > max_row or min_col > max_col:
+            return
+
+        for r in range(min_row, max_row + 1):
+            for c in range(min_col, max_col + 1):
+                is_top = r == min_row
+                is_bottom = r == max_row
+                is_left = c == min_col
+                is_right = c == max_col
+                if not (is_top or is_bottom or is_left or is_right):
+                    continue
+
+                cell = ws.cell(row=r + 1, column=c + 1)
+                border = cell.border
+                cell.border = Border(
+                    left=side if is_left else border.left,
+                    right=side if is_right else border.right,
+                    top=side if is_top else border.top,
+                    bottom=side if is_bottom else border.bottom,
+                )
+
+    last_row = df.shape[0] - 1
+    if last_row >= header_row:
+        _apply_outline(
+            min_row=header_row,
+            max_row=last_row,
+            min_col=0,
+            max_col=insert_col - 1,
+            side=source_side,
+        )
+        _apply_outline(
+            min_row=header_row,
+            max_row=last_row,
+            min_col=insert_col,
+            max_col=insert_col + len(extra_headers) - 1,
+            side=parsed_side,
+        )
+
+    wb.save(out_path)
 
 
+
+def build_flat_xlsx(out_path: str, items: list[dict]) -> None:
+    """Сохраняет плоский список результатов в XLSX без исходной таблицы."""
+    columns = ["input_name", "title", "price", "input_qty", "found_qty", "warning", "message"]
+    df = pd.DataFrame(items, columns=columns)
+    df.to_excel(out_path, index=False)
+    
 
 def extract_qty_from_xls_row(text: str) -> Tuple[Optional[int], bool]:
     """Возвращает количество из передаваемого текста"""
