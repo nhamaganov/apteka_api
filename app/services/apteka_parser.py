@@ -732,7 +732,7 @@ def parse_product_page_one_item(
     
     warning = ""
     if qty_is_sum:
-        warning = "Уточните цену сами, могут быть неточности"
+        warning = "Уточните цену на сайте, возможны неточности"
 
 
     def build_price_and_message() -> Tuple[str, str]:
@@ -740,7 +740,7 @@ def parse_product_page_one_item(
         unavailable = _is_product_unavailable(driver)
         unavailable_price = _get_unavailable_last_price(driver) if unavailable else ""
         price = unavailable_price or get_product_page_price(driver, timeout=timeout, expected_qty=expected_qty)
-        message = "Товара нет в наличии, указана последняя цена" if unavailable and price else ""
+        message = "Нет в наличии, указана последняя цена" if unavailable and price else ""
         return price, message
 
 

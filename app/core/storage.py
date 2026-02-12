@@ -56,9 +56,9 @@ def queries_path(job_id: str) -> Path:
     return job_dir(job_id) / "queries.json"
 
 
-def result_csv_path(job_id: str) -> Path:
+def result_file_path(job_id: str) -> Path:
     """Возвращает путь к файлу с результатами"""
-    return job_dir(job_id) / "result.csv"
+    return job_dir(job_id) / "result.xlsx"
 
 
 def log_path(job_id: str) -> Path:
