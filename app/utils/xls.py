@@ -102,10 +102,6 @@ def build_enriched_csv(path: str, out_path: str, items: list[dict]) -> None:
             continue
         by_input_name.setdefault(key, []).append(item)
 
-    insert_col = header_col + 1
-    while insert_col < df.shape[1] and not _is_empty(df.iat[header_row, insert_col]):
-        insert_col += 1
-
     extra_headers = [
         "Найденный товар",
         "Цена",
@@ -114,6 +110,25 @@ def build_enriched_csv(path: str, out_path: str, items: list[dict]) -> None:
         "Предупреждение",
         "Сообщение",
     ]
+
+    def _column_is_empty(col_idx: int) -> bool:
+        if col_idx >= df.shape[1]:
+            return True
+        for row_idx in range(header_row, df.shape[0]):
+            if not _is_empty(df.iat[row_idx, col_idx]):
+                return False
+        return True
+
+    insert_col = header_col + 1
+    while True:
+        block_is_free = True
+        for offset in range(len(extra_headers)):
+            if not _column_is_empty(insert_col + offset):
+                block_is_free = False
+                break
+        if block_is_free:
+            break
+        insert_col += 1
 
     required_cols = insert_col + len(extra_headers)
     while df.shape[1] < required_cols:

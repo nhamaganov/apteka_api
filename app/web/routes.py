@@ -91,6 +91,21 @@ def job_page(request: Request, job_id: str):
     return templates.TemplateResponse("job.html", {"request": request, "job_id": job_id, "display_name": name})
 
 
+@router.post("/ui/{job_id}/cancel")
+def cancel_job_ui(job_id: str):
+    """Отмечает задачу отменённой и редиректит на главную."""
+    stp = status_path(job_id)
+    if not stp.exists():
+        return RedirectResponse("/", status_code=303)
+
+    st = read_json(stp)
+    if st.get("status") not in {"done", "failed", "cancelled"}:
+        st["cancelled"] = True
+        write_json(stp, st)
+
+    return RedirectResponse("/", status_code=303)
+
+
 @router.post("/ui/{job_id}/delete")
 def delete_job_ui(job_id: str):
     """Удаляет завершённую задачу и редиректит на главную."""

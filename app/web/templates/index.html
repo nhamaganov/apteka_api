@@ -87,7 +87,7 @@
                   <div class="actions-inline">
                     <span class="btn-sm disabled">Скачать</span>
 
-                    <form action="/jobs/{{ j.job_id }}/cancel" method="post" style="display:inline"
+                    <form action="/ui/{{ j.job_id }}/cancel" method="post" style="display:inline"
                           onsubmit="return confirm('Остановить задачу {{ j.job_id }}?');">
                       <button class="btn-sm danger" type="submit">Остановить</button>
                     </form>
