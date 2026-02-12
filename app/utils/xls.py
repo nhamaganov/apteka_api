@@ -111,7 +111,6 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
         "Цена",
         "Кол-во (в запросе)",
         "Кол-во (найдено)",
-        "Предупреждение",
         "Сообщение",
     ]
 
@@ -179,7 +178,6 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
             item.get("price", ""),
             item.get("input_qty", ""),
             item.get("found_qty", ""),
-            item.get("warning", ""),
             item.get("message", ""),
         ]
         for offset, value in enumerate(row_values):
@@ -259,7 +257,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
 
 def build_flat_xlsx(out_path: str, items: list[dict]) -> None:
     """Сохраняет плоский список результатов в XLSX без исходной таблицы."""
-    columns = ["input_name", "title", "price", "input_qty", "found_qty", "warning", "message"]
+    columns = ["input_name", "title", "price", "input_qty", "found_qty", "message"]
     df = pd.DataFrame(items, columns=columns)
     df.to_excel(out_path, index=False)
 
