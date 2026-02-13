@@ -183,7 +183,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
     ws = wb.active
 
     source_side = Side(style="thin", color="000000")
-    parsed_side = Side(style="medium", color="1F4E78")
+    parsed_side = Side(style="thin", color="000000")
 
     ROW_OFFSET = 1 
 
@@ -239,7 +239,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
         width = min(max(max_len + 2, 6), 80)
         ws.column_dimensions[get_column_letter(col_idx + 1)].width = width
 
-    def _apply_outline(min_row: int, max_row: int, min_col: int, max_col: int, side: Side) -> None:
+    def _apply_table_borders(min_row: int, max_row: int, min_col: int, max_col: int, side: Side) -> None:
         if min_row > max_row or min_col > max_col:
             return
 
@@ -249,28 +249,27 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
                 is_bottom = r == max_row
                 is_left = c == min_col
                 is_right = c == max_col
-                if not (is_top or is_bottom or is_left or is_right):
-                    continue
+                has_inner_vertical = c > min_col
 
                 cell = ws.cell(row=r + 1 + ROW_OFFSET, column=c + 1)
                 border = cell.border
                 cell.border = Border(
-                    left=side if is_left else border.left,
-                    right=side if is_right else border.right,
+                    left=side if (is_left or has_inner_vertical) else border.left,
+                    right=side if (is_right or has_inner_vertical) else border.right,
                     top=side if is_top else border.top,
                     bottom=side if is_bottom else border.bottom,
                 )
 
     last_row = df.shape[0] - 1
     if last_row >= header_row:
-        _apply_outline(
+        _apply_table_borders(
             min_row=header_row,
             max_row=last_row,
             min_col=0,
             max_col=insert_col - 1,
             side=source_side,
         )
-        _apply_outline(
+        _apply_table_borders(
             min_row=header_row,
             max_row=last_row,
             min_col=insert_col,
