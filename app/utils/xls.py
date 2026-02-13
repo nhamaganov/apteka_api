@@ -182,15 +182,17 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
     wb = Workbook()
     ws = wb.active
 
-    source_side = Side(style="thin", color="000000")
+    source_side = Side(style="thick", color="000000")
     parsed_side = Side(style="medium", color="1F4E78")
+
+    ROW_OFFSET = 1 
 
     base_alignment = Alignment(vertical="top", wrap_text=True)
 
     for row_idx in range(df.shape[0]):
         for col_idx in range(df.shape[1]):
             value = df.iat[row_idx, col_idx]
-            cell = ws.cell(row=row_idx + 1, column=col_idx + 1)
+            cell = ws.cell(row=row_idx + 1 + ROW_OFFSET, column=col_idx + 1)
             cell.value = "" if pd.isna(value) else value
             cell.alignment = base_alignment
 
@@ -205,7 +207,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
         for row_idx in range(df.shape[0]):
             max_len = max(max_len, _max_line_len(df.iat[row_idx, col_idx]))
 
-        width = min(max(max_len + 2, 10), 80)
+        width = min(max(max_len + 2, 7), 80)
         ws.column_dimensions[get_column_letter(col_idx + 1)].width = width
 
     def _apply_outline(min_row: int, max_row: int, min_col: int, max_col: int, side: Side) -> None:
@@ -221,7 +223,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
                 if not (is_top or is_bottom or is_left or is_right):
                     continue
 
-                cell = ws.cell(row=r + 1, column=c + 1)
+                cell = ws.cell(row=r + 1 + ROW_OFFSET, column=c + 1)
                 border = cell.border
                 cell.border = Border(
                     left=side if is_left else border.left,
