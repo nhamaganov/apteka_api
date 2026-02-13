@@ -2,7 +2,7 @@ import re
 from typing import Optional, Tuple
 import pandas as pd
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Side
+from openpyxl.styles import Alignment, Border, Side, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 
@@ -182,7 +182,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
     wb = Workbook()
     ws = wb.active
 
-    source_side = Side(style="thick", color="000000")
+    source_side = Side(style="thin", color="000000")
     parsed_side = Side(style="medium", color="1F4E78")
 
     ROW_OFFSET = 1 
@@ -196,6 +196,35 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
             cell.value = "" if pd.isna(value) else value
             cell.alignment = base_alignment
 
+    source_min_col = 1
+    source_max_col = insert_col
+    parsed_min_col = insert_col + 1
+    parsed_max_col = insert_col + len(extra_headers)
+
+    ws.merge_cells(
+        start_row=1,
+        start_column=source_min_col,
+        end_row=1,
+        end_column=source_max_col,
+    )
+    source_header_cell = ws.cell(row=1, column=source_min_col)
+    source_header_cell.value = "Входящая информация"
+    source_header_cell.alignment = Alignment(horizontal="center", vertical="center")
+    source_header_cell.font = Font(size=18, bold=True)
+    source_header_cell.fill = PatternFill(fill_type="solid", fgColor="D9EAD3")
+
+    ws.merge_cells(
+        start_row=1,
+        start_column=parsed_min_col,
+        end_row=1,
+        end_column=parsed_max_col,
+    )
+    parsed_header_cell = ws.cell(row=1, column=parsed_min_col)
+    parsed_header_cell.value = "Apteka Ru"
+    parsed_header_cell.alignment = Alignment(horizontal="center", vertical="center")
+    parsed_header_cell.font = Font(size=22, bold=True)
+    parsed_header_cell.fill = PatternFill(fill_type="solid", fgColor="D0E0E3")
+
     def _max_line_len(value: object) -> int:
         text = "" if pd.isna(value) else str(value)
         if not text:
@@ -207,7 +236,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
         for row_idx in range(df.shape[0]):
             max_len = max(max_len, _max_line_len(df.iat[row_idx, col_idx]))
 
-        width = min(max(max_len + 2, 7), 80)
+        width = min(max(max_len + 2, 6), 80)
         ws.column_dimensions[get_column_letter(col_idx + 1)].width = width
 
     def _apply_outline(min_row: int, max_row: int, min_col: int, max_col: int, side: Side) -> None:
