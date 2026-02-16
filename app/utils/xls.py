@@ -210,6 +210,8 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
             base_price_col = col_idx
             break
 
+    markup_formula_rows: list[int] = []
+
     for r in range(header_row + 1, df.shape[0]):
         raw = df.iat[r, header_col]
         if _is_empty(raw):
@@ -252,9 +254,9 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
             if (
                 base_price is not None
                 and parsed_price_num is not None
-                and (base_price - 1) != 0
+                and (parsed_price_num  - 1) != 0
             ):
-                markup_value = parsed_price_num / (base_price - 1)
+                markup_formula_rows.append(r)
 
         row_values = [
             parsed_price,
@@ -275,16 +277,30 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
     source_side = Side(style="thin", color="000000")
     parsed_side = Side(style="thin", color="000000")
 
-    ROW_OFFSET = 1 
+    ROW_OFFSET = 1
 
-    base_alignment = Alignment(vertical="top", wrap_text=True)
+    header_alignment = Alignment(vertical="top", wrap_text=True)
+    content_alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
 
     for row_idx in range(df.shape[0]):
         for col_idx in range(df.shape[1]):
             value = df.iat[row_idx, col_idx]
             cell = ws.cell(row=row_idx + 1 + ROW_OFFSET, column=col_idx + 1)
             cell.value = "" if pd.isna(value) else value
-            cell.alignment = base_alignment
+            if row_idx == header_row:
+                cell.alignment = header_alignment
+            else:
+                cell.alignment = content_alignment
+
+    if base_price_col is not None:
+        base_price_letter = get_column_letter(base_price_col + 1)
+        parsed_price_letter = get_column_letter(insert_col + 1)
+        markup_col = insert_col + 2
+        for row_idx in markup_formula_rows:
+            excel_row = row_idx + 1 + ROW_OFFSET
+            markup_cell = ws.cell(row=excel_row, column=markup_col)
+            markup_cell.value = f"={base_price_letter}{excel_row}/({parsed_price_letter}{excel_row}-1)"
+            markup_cell.number_format = '0.00%'
 
     source_min_col = 1
     source_max_col = insert_col
@@ -415,7 +431,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
     for col_idx, header in enumerate(apteka_extra_headers, start=1):
         cell = apteka_sheet.cell(row=2, column=col_idx)
         cell.value = header
-        cell.alignment = base_alignment
+        cell.alignment = header_alignment
         cell.border = Border(left=parsed_side, right=parsed_side, top=parsed_side, bottom=parsed_side)
 
     apteka_row = 3
@@ -424,7 +440,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
         for col_idx, value in enumerate(values, start=1):
             cell = apteka_sheet.cell(row=apteka_row, column=col_idx)
             cell.value = value
-            cell.alignment = base_alignment
+            cell.alignment = content_alignment
             cell.border = Border(left=parsed_side, right=parsed_side, top=parsed_side, bottom=parsed_side)
         apteka_row += 1
 
