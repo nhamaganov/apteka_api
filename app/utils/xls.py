@@ -96,8 +96,50 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
             return True
         return str(v).strip() == ""
 
+    def _find_list_start_row(frame: pd.DataFrame) -> Optional[int]:
+        for row_idx in range(header_row + 1, frame.shape[0]):
+            name_cell = frame.iat[row_idx, header_col]
+            if _is_empty(name_cell):
+                continue
+
+            if header_col > 0:
+                order_cell = frame.iat[row_idx, header_col - 1]
+                if _is_empty(order_cell):
+                    continue
+
+                order_text = str(order_cell).strip()
+                if re.fullmatch(r"\d+(?:\.0+)?", order_text):
+                    return row_idx
+            else:
+                return row_idx
+
+        return None
+
     def _key(name: str) -> str:
         return (name or "").strip().lower().replace("ё", "е")
+
+    list_start_row = _find_list_start_row(df)
+
+    if list_start_row is not None and list_start_row > header_row + 1:
+        subheader_rows = range(header_row, list_start_row)
+        for col_idx in range(df.shape[1]):
+            parts: list[str] = []
+            for row_idx in subheader_rows:
+                cell_value = df.iat[row_idx, col_idx]
+                if _is_empty(cell_value):
+                    continue
+                normalized = " ".join(str(cell_value).split())
+                if normalized:
+                    parts.append(normalized)
+
+            if parts:
+                df.iat[header_row, col_idx] = " ".join(parts)
+
+        rows_to_remove = list(range(header_row + 1, list_start_row))
+        if rows_to_remove:
+            df = df.drop(index=rows_to_remove).reset_index(drop=True)
+
+        list_start_row = header_row + 1
 
     by_input_name: dict[str, list[dict]] = {}
     for item in items:
@@ -282,25 +324,6 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
                     top=side if is_top else border.top,
                     bottom=side if is_bottom else border.bottom,
                 )
-
-    list_start_row = None
-    for r in range(header_row + 1, df.shape[0]):
-        name_cell = df.iat[r, header_col]
-        if _is_empty(name_cell):
-            continue
-
-        if header_col > 0:
-            order_cell = df.iat[r, header_col - 1]
-            if _is_empty(order_cell):
-                continue
-
-            order_text = str(order_cell).strip()
-            if re.fullmatch(r"\d+(?:\.0+)?", order_text):
-                list_start_row = r
-                break
-        else:
-            list_start_row = r
-            break
 
     last_row = df.shape[0] - 1
     if last_row >= header_row:
