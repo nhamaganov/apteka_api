@@ -299,7 +299,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
         for row_idx in markup_formula_rows:
             excel_row = row_idx + 1 + ROW_OFFSET
             markup_cell = ws.cell(row=excel_row, column=markup_col)
-            markup_cell.value = f"={base_price_letter}{excel_row}/({parsed_price_letter}{excel_row}-1)"
+            markup_cell.value = f"={parsed_price_letter}{excel_row}/({base_price_letter}{excel_row}-1)-1"
             markup_cell.number_format = '0.00%'
 
     source_min_col = 1
