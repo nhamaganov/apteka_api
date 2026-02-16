@@ -119,6 +119,22 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
     def _key(name: str) -> str:
         return (name or "").strip().lower().replace("ё", "е")
 
+    def _to_number(value: object) -> Optional[float]:
+        if value is None:
+            return None
+        text_value = str(value).strip()
+        if not text_value:
+            return None
+
+        normalized = text_value.replace(" ", "").replace(" ", "").replace(",", ".")
+        normalized = re.sub(r"[^0-9.\-]", "", normalized)
+        if not normalized:
+            return None
+        try:
+            return float(normalized)
+        except ValueError:
+            return None
+
     list_start_row = _find_list_start_row(df)
 
     if list_start_row is not None and list_start_row > header_row + 1:
@@ -151,7 +167,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
 
     main_extra_headers = [
         "Цена",
-        "Сообщение",
+        "Наценка к базовой цене",
     ]
     apteka_extra_headers = [
         "Найденный товар",
@@ -187,6 +203,13 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
 
     apteka_rows: dict[int, list[object]] = {}
 
+    base_price_col: Optional[int] = None
+    for col_idx in range(df.shape[1]):
+        header_value = str(df.iat[header_row, col_idx]).strip().lower()
+        if "цена базовая" in header_value:
+            base_price_col = col_idx
+            break
+
     for r in range(header_row + 1, df.shape[0]):
         raw = df.iat[r, header_col]
         if _is_empty(raw):
@@ -220,9 +243,22 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
             if item is None:
                 item = candidates[0]
 
+        parsed_price = item.get("price", "")
+
+        markup_value: object = ""
+        if base_price_col is not None:
+            base_price = _to_number(df.iat[r, base_price_col])
+            parsed_price_num = _to_number(parsed_price)
+            if (
+                base_price is not None
+                and parsed_price_num is not None
+                and (base_price - 1) != 0
+            ):
+                markup_value = parsed_price_num / (base_price - 1)
+
         row_values = [
-            item.get("price", ""),
-            item.get("message", ""),
+            parsed_price,
+            markup_value,
         ]
         for offset, value in enumerate(row_values):
             df.iat[r, insert_col + offset] = value
@@ -364,7 +400,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
             max_col=insert_col + len(main_extra_headers) - 1,
             side=parsed_side,
         )
-        
+
     ws.title = "Итог"
 
     apteka_sheet = wb.create_sheet("Apteka Ru")
