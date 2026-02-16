@@ -260,8 +260,61 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
                     bottom=side if is_bottom else border.bottom,
                 )
 
+    def _apply_outer_border(min_row: int, max_row: int, min_col: int, max_col: int, side: Side) -> None:
+        if min_row > max_row or min_col > max_col:
+            return
+
+        for r in range(min_row, max_row + 1):
+            for c in range(min_col, max_col + 1):
+                is_top = r == min_row
+                is_bottom = r == max_row
+                is_left = c == min_col
+                is_right = c == max_col
+
+                if not (is_top or is_bottom or is_left or is_right):
+                    continue
+
+                cell = ws.cell(row=r + 1 + ROW_OFFSET, column=c + 1)
+                border = cell.border
+                cell.border = Border(
+                    left=side if is_left else border.left,
+                    right=side if is_right else border.right,
+                    top=side if is_top else border.top,
+                    bottom=side if is_bottom else border.bottom,
+                )
+
+    list_start_row = None
+    for r in range(header_row + 1, df.shape[0]):
+        name_cell = df.iat[r, header_col]
+        if _is_empty(name_cell):
+            continue
+
+        if header_col > 0:
+            order_cell = df.iat[r, header_col - 1]
+            if _is_empty(order_cell):
+                continue
+
+            order_text = str(order_cell).strip()
+            if re.fullmatch(r"\d+(?:\.0+)?", order_text):
+                list_start_row = r
+                break
+        else:
+            list_start_row = r
+            break
+
     last_row = df.shape[0] - 1
     if last_row >= header_row:
+        subheader_min_row = header_row
+        subheader_max_row = (list_start_row - 1) if list_start_row is not None else header_row
+        if subheader_min_row <= subheader_max_row:
+            _apply_outer_border(
+                min_row=subheader_min_row,
+                max_row=subheader_max_row,
+                min_col=0,
+                max_col=df.shape[1] - 1,
+                side=source_side,
+            )
+
         _apply_table_borders(
             min_row=header_row,
             max_row=last_row,
