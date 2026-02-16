@@ -1,4 +1,5 @@
 import re
+from copy import copy
 from typing import Optional, Tuple
 import pandas as pd
 from openpyxl import Workbook
@@ -148,7 +149,11 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
             continue
         by_input_name.setdefault(key, []).append(item)
 
-    extra_headers = [
+    main_extra_headers = [
+        "Цена",
+        "Сообщение",
+    ]
+    apteka_extra_headers = [
         "Найденный товар",
         "Цена",
         "Сообщение",
@@ -165,7 +170,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
     insert_col = header_col + 1
     while True:
         block_is_free = True
-        for offset in range(len(extra_headers)):
+        for offset in range(len(main_extra_headers)):
             if not _column_is_empty(insert_col + offset):
                 block_is_free = False
                 break
@@ -173,12 +178,14 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
             break
         insert_col += 1
 
-    required_cols = insert_col + len(extra_headers)
+    required_cols = insert_col + len(main_extra_headers)
     while df.shape[1] < required_cols:
         df[df.shape[1]] = None
 
-    for offset, name in enumerate(extra_headers):
+    for offset, name in enumerate(main_extra_headers):
         df.iat[header_row, insert_col + offset] = name
+
+    apteka_rows: dict[int, list[object]] = {}
 
     for r in range(header_row + 1, df.shape[0]):
         raw = df.iat[r, header_col]
@@ -214,12 +221,17 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
                 item = candidates[0]
 
         row_values = [
-            item.get("title", ""),
             item.get("price", ""),
             item.get("message", ""),
         ]
         for offset, value in enumerate(row_values):
             df.iat[r, insert_col + offset] = value
+
+        apteka_rows[r] = [
+            item.get("title", ""),
+            item.get("price", ""),
+            item.get("message", ""),
+        ]
 
     wb = Workbook()
     ws = wb.active
@@ -241,7 +253,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
     source_min_col = 1
     source_max_col = insert_col
     parsed_min_col = insert_col + 1
-    parsed_max_col = insert_col + len(extra_headers)
+    parsed_max_col = insert_col + len(main_extra_headers)
 
     ws.merge_cells(
         start_row=1,
@@ -349,12 +361,42 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
             min_row=header_row,
             max_row=last_row,
             min_col=insert_col,
-            max_col=insert_col + len(extra_headers) - 1,
+            max_col=insert_col + len(main_extra_headers) - 1,
             side=parsed_side,
         )
+        
+    ws.title = "Итог"
+
+    apteka_sheet = wb.create_sheet("Apteka Ru")
+    apteka_sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(apteka_extra_headers))
+
+    apteka_header_cell = apteka_sheet.cell(row=1, column=1)
+    apteka_header_cell.value = "Apteka Ru"
+    apteka_header_cell.alignment = Alignment(horizontal="center", vertical="center")
+    apteka_header_cell.font = Font(size=22, bold=True)
+    apteka_header_cell.fill = PatternFill(fill_type="solid", fgColor="D0E0E3")
+
+    for col_idx, header in enumerate(apteka_extra_headers, start=1):
+        cell = apteka_sheet.cell(row=2, column=col_idx)
+        cell.value = header
+        cell.alignment = base_alignment
+        cell.border = Border(left=parsed_side, right=parsed_side, top=parsed_side, bottom=parsed_side)
+
+    apteka_row = 3
+    for r in range(header_row + 1, df.shape[0]):
+        values = apteka_rows.get(r, ["", "", ""])
+        for col_idx, value in enumerate(values, start=1):
+            cell = apteka_sheet.cell(row=apteka_row, column=col_idx)
+            cell.value = value
+            cell.alignment = base_alignment
+            cell.border = Border(left=parsed_side, right=parsed_side, top=parsed_side, bottom=parsed_side)
+        apteka_row += 1
+
+    for offset in range(len(apteka_extra_headers)):
+        target_letter = get_column_letter(offset + 1)
+        apteka_sheet.column_dimensions[target_letter].width = 40 if offset == 0 else 18
 
     wb.save(out_path)
-
 
 
 def build_flat_xlsx(out_path: str, items: list[dict]) -> None:
