@@ -167,7 +167,9 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
 
     main_extra_headers = [
         "Цена",
-        "Наценка к базовой цене",
+        "Отклонение базовой цены",
+        "Отклонение закупочной цены",
+        "Отклонение цены нашего сайта",
     ]
     apteka_extra_headers = [
         "Найденный товар",
@@ -204,13 +206,22 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
     apteka_rows: dict[int, list[object]] = {}
 
     base_price_col: Optional[int] = None
+    purchase_price_col: Optional[int] = None
+    site_price_col: Optional[int] = None
     for col_idx in range(df.shape[1]):
         header_value = str(df.iat[header_row, col_idx]).strip().lower()
-        if "цена базовая" in header_value:
+        if base_price_col is None and "цена базовая" in header_value:
             base_price_col = col_idx
+        if purchase_price_col is None and "цена закуп" in header_value:
+            purchase_price_col = col_idx
+        if site_price_col is None and "цена фг" in header_value:
+            site_price_col = col_idx
+        if base_price_col is not None and purchase_price_col is not None and site_price_col is not None:
             break
 
-    markup_formula_rows: list[int] = []
+    base_markup_formula_rows: list[int] = []
+    purchase_markup_formula_rows: list[int] = []
+    site_markup_formula_rows: list[int] = []
 
     for r in range(header_row + 1, df.shape[0]):
         raw = df.iat[r, header_col]
@@ -247,21 +258,46 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
 
         parsed_price = item.get("price", "")
 
-        markup_value: object = ""
+        base_markup_value: object = ""
+        purchase_markup_value: object = ""
+        site_markup_value: object = ""
+        parsed_price_num = _to_number(parsed_price)
+
         if base_price_col is not None:
             base_price = _to_number(df.iat[r, base_price_col])
             parsed_price_num = _to_number(parsed_price)
             if (
                 base_price is not None
                 and parsed_price_num is not None
-                and (parsed_price_num  - 1) != 0
+                and (base_price - 1) != 0
             ):
-                markup_formula_rows.append(r)
+                base_markup_formula_rows.append(r)
+
+        if purchase_price_col is not None:
+            purchase_price = _to_number(df.iat[r, purchase_price_col])
+            if (
+                purchase_price is not None
+                and parsed_price_num is not None
+                and (purchase_price - 1) != 0
+            ):
+                purchase_markup_formula_rows.append(r)
+
+        if site_price_col is not None:
+            site_price = _to_number(df.iat[r, site_price_col])
+            if (
+                site_price is not None
+                and parsed_price_num is not None
+                and (site_price - 1) != 0
+            ):
+                site_markup_formula_rows.append(r)
 
         row_values = [
             parsed_price,
-            markup_value,
+            base_markup_value,
+            purchase_markup_value,
+            site_markup_value,
         ]
+
         for offset, value in enumerate(row_values):
             df.iat[r, insert_col + offset] = value
 
@@ -292,15 +328,34 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
             else:
                 cell.alignment = content_alignment
 
+    parsed_price_letter = get_column_letter(insert_col + 1)
+
     if base_price_col is not None:
         base_price_letter = get_column_letter(base_price_col + 1)
-        parsed_price_letter = get_column_letter(insert_col + 1)
-        markup_col = insert_col + 2
-        for row_idx in markup_formula_rows:
+        base_markup_col = insert_col + 2
+        for row_idx in base_markup_formula_rows:
             excel_row = row_idx + 1 + ROW_OFFSET
-            markup_cell = ws.cell(row=excel_row, column=markup_col)
-            markup_cell.value = f"={parsed_price_letter}{excel_row}/({base_price_letter}{excel_row}-1)-1"
-            markup_cell.number_format = '0.00%'
+            base_markup_cell = ws.cell(row=excel_row, column=base_markup_col)
+            base_markup_cell.value = f"={parsed_price_letter}{excel_row}/({base_price_letter}{excel_row}-1)-1"
+            base_markup_cell.number_format = '0.00%'
+
+    if purchase_price_col is not None:
+        purchase_price_letter = get_column_letter(purchase_price_col + 1)
+        purchase_markup_col = insert_col + 3
+        for row_idx in purchase_markup_formula_rows:
+            excel_row = row_idx + 1 + ROW_OFFSET
+            purchase_markup_cell = ws.cell(row=excel_row, column=purchase_markup_col)
+            purchase_markup_cell.value = f"={parsed_price_letter}{excel_row}/({purchase_price_letter}{excel_row}-1)-1"
+            purchase_markup_cell.number_format = '0.00%'
+
+    if site_price_col is not None:
+        site_price_letter = get_column_letter(site_price_col + 1)
+        site_markup_col = insert_col + 4
+        for row_idx in site_markup_formula_rows:
+            excel_row = row_idx + 1 + ROW_OFFSET
+            site_markup_cell = ws.cell(row=excel_row, column=site_markup_col)
+            site_markup_cell.value = f"={parsed_price_letter}{excel_row}/({site_price_letter}{excel_row}-1)-1"
+            site_markup_cell.number_format = '0.00%'
 
     source_min_col = 1
     source_max_col = insert_col
