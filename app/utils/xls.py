@@ -75,7 +75,14 @@ def extract_queries_from_excel(path: str) -> list[dict]:
     return queries
 
 
-def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
+def _apteka_title(city_name: str) -> str:
+    """Возвращает заголовок блока Apteka с учетом выбранного города."""
+    normalized_city = (city_name or "").strip()
+    return f"Apteka Ru - {normalized_city}" if normalized_city else "Apteka Ru"
+
+
+def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: str = "") -> None:
+
     """Дополняет исходную таблицу результатами парсинга и сохраняет как XLSX."""
     df = pd.read_excel(path, header=None)
 
@@ -378,7 +385,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
         end_column=parsed_max_col,
     )
     parsed_header_cell = ws.cell(row=1, column=parsed_min_col)
-    parsed_header_cell.value = "Apteka Ru"
+    parsed_header_cell.value = _apteka_title(city_name)
     parsed_header_cell.alignment = Alignment(horizontal="center", vertical="center")
     parsed_header_cell.font = Font(size=22, bold=True)
     parsed_header_cell.fill = PatternFill(fill_type="solid", fgColor="D0E0E3")
@@ -475,7 +482,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
     apteka_sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(apteka_extra_headers))
 
     apteka_header_cell = apteka_sheet.cell(row=1, column=1)
-    apteka_header_cell.value = "Apteka Ru"
+    apteka_header_cell.value = _apteka_title(city_name)
     apteka_header_cell.alignment = Alignment(horizontal="center", vertical="center")
     apteka_header_cell.font = Font(size=22, bold=True)
     apteka_header_cell.fill = PatternFill(fill_type="solid", fgColor="D0E0E3")
@@ -503,11 +510,12 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict]) -> None:
     wb.save(out_path)
 
 
-def build_flat_xlsx(out_path: str, items: list[dict]) -> None:
+def build_flat_xlsx(out_path: str, items: list[dict], city_name: str = "") -> None:
     """Сохраняет плоский список результатов в XLSX без исходной таблицы."""
     columns = ["input_name", "title", "price", "message"]
     df = pd.DataFrame(items, columns=columns)
-    df.to_excel(out_path, index=False)
+    sheet_name = _apteka_title(city_name)[:31] or "Sheet1"
+    df.to_excel(out_path, index=False, sheet_name=sheet_name)
 
 
 def extract_qty_from_xls_row(text: str) -> Tuple[Optional[int], bool]:

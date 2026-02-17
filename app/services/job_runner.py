@@ -44,7 +44,7 @@ async def process_job(job_id: str) -> None:
                 write_json(status_path(job_id), status)
 
                 write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "cancelled": True})
-                _write_result_csv(job_id, all_items, status)
+                _write_result_csv(job_id, all_items, status, select_city)
 
                 job_log(job_id, "JOB cancelled by user")
                 return
@@ -114,7 +114,7 @@ async def process_job(job_id: str) -> None:
 
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items})
 
-        _write_result_csv(job_id, all_items, status)
+        _write_result_csv(job_id, all_items, status, selected_city)
 
         status["status"] = "done"
         status["finished_at"] = now_iso()
@@ -130,7 +130,7 @@ async def process_job(job_id: str) -> None:
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "error": str(e)})
 
         try:
-            _write_result_csv(job_id, all_items, status)
+            _write_result_csv(job_id, all_items, status, selected_city)
         except Exception:
             pass
 
@@ -165,16 +165,16 @@ def job_log(job_id: str, msg: str) -> None:
         f.write(line)
 
 
-def _write_result_csv(job_id: str, all_items: List[Dict], status: Dict) -> None:
+def _write_result_csv(job_id: str, all_items: List[Dict], status: Dict, city_name: str = "") -> None:
     """Пишет итоговый XLSX: сначала пытается обогатить исходную таблицу, иначе пишет плоскую таблицу."""
     filename = status.get("filename")
     if filename:
         src = upload_path(job_id, filename)
         if src.exists():
             try:
-                build_enriched_xlsx(str(src), str(result_file_path(job_id)), all_items)
+                build_enriched_xlsx(str(src), str(result_file_path(job_id)), all_items, city_name)
                 return
             except Exception as exc:
                 job_log(job_id, f"Failed to build enriched xlsx: {exc}")
 
-    build_flat_xlsx(str(result_file_path(job_id)), all_items)
+    build_flat_xlsx(str(result_file_path(job_id)), all_items, city_name)
