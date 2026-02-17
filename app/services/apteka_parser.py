@@ -730,17 +730,25 @@ def parse_product_page_one_item(
     if not is_name_match(query_name, title):
         return False, {"input_name": query_name, "message": "Нет подходящего варианта"}
     
-    warning = ""
+    warning_message = ""
     if qty_is_sum:
-        warning = "Уточните цену на сайте, возможны неточности"
+        warning_message = "Уточните цену на сайте, возможны неточности"
 
 
     def build_price_and_message() -> Tuple[str, str]:
         """Читает цену и сообщение по текущему состоянию product page."""
+        messages: list[str] = []
+        if warning_message:
+            messages.append(warning_message)
+
         unavailable = _is_product_unavailable(driver)
         unavailable_price = _get_unavailable_last_price(driver) if unavailable else ""
         price = unavailable_price or get_product_page_price(driver, timeout=timeout, expected_qty=expected_qty)
-        message = "Нет в наличии, указана последняя цена" if unavailable and price else ""
+        if unavailable and price:
+            messages.append("Нет в наличии, указана последняя цена")
+
+        message = " | ".join(messages)
+
         return price, message
 
 
@@ -753,7 +761,6 @@ def parse_product_page_one_item(
             "price": price,
             "input_qty": expected_qty,
             "found_qty": found_qty,
-            "warning": warning,
             "message": message
         }
 
@@ -766,7 +773,6 @@ def parse_product_page_one_item(
             "price": price,
             "input_qty": expected_qty,
             "found_qty": found_qty,
-            "warning": warning,
             "message": message
         }
     
@@ -782,11 +788,15 @@ def parse_product_page_one_item(
             "price": price2,
             "input_qty": expected_qty,
             "found_qty": found_qty2 if found_qty2 is not None else expected_qty,
-            "warning": warning,
             "message": message2
         }
 
-    return False, {"input_name": query_name, "message": "Нет подходящего варианта", "input_qty": expected_qty, "warning": warning}
+    not_found_message = "Нет подходящего варианта"
+    if warning_message:
+        not_found_message = f"{warning_message} | {not_found_message}"
+
+    return False, {"input_name": query_name, "message": not_found_message, "input_qty": expected_qty}
+
 
 
 def parse_product_page(driver, query, timeout) -> List[Dict]:

@@ -86,7 +86,6 @@ async def process_job(job_id: str) -> None:
                         f"price={it.get('price')!r} "
                         f"input_qty={it.get('input_qty')!r} "
                         f"found_qty={it.get('found_qty')!r} "
-                        f"warning={it.get('warning')!r} "
                         f"message={it.get('message')!r}"
                     )
             if outcome == "matched":
