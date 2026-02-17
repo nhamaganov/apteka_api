@@ -44,7 +44,7 @@ async def process_job(job_id: str) -> None:
                 write_json(status_path(job_id), status)
 
                 write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "cancelled": True})
-                _write_result_csv(job_id, all_items, status, select_city)
+                _write_result_csv(job_id, all_items, status, selected_city)
 
                 job_log(job_id, "JOB cancelled by user")
                 return
