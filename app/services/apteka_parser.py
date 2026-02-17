@@ -53,6 +53,7 @@ def find_clickable(driver_or_el, by, value, timeout) -> w:
 
 def make_driver() -> webdriver.Chrome:
     """Создание дравера браузера"""
+    # For linux
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
@@ -63,10 +64,9 @@ def make_driver() -> webdriver.Chrome:
 
     return webdriver.Chrome(service=service, options=options)
     
+    # For windows
     # options = Options()
-    # options.add_argument("--headless=new")
     # options.add_argument("--window-size=1400,900")
-
     # return webdriver.Chrome(options=options)
 
 
@@ -147,6 +147,33 @@ def close_modal_if_any(driver, timeout) -> None:
         close_btn.click()
     except Exception:
         pass
+
+
+def select_city(driver, city: str, timeout: int = 8) -> None:
+    """Выбирает город в шапке сайта через модалку выбора города."""
+    city_name = (city or "").strip()
+    if not city_name:
+        return
+
+    city_link = find_clickable(
+        driver,
+        By.CSS_SELECTOR,
+        "span.SiteHeaderTop__link.SiteHeaderTop__city",
+        timeout,
+    )
+    city_link.click()
+    time.sleep(4)
+
+    city_input = find_visible(driver, By.ID, "search-city", timeout)
+    city_input.click()
+    city_input.send_keys(Keys.CONTROL, "a")
+    city_input.send_keys(Keys.BACKSPACE)
+    city_input.send_keys(city_name)
+    time.sleep(4)
+
+    first_option = find_clickable(driver, By.CSS_SELECTOR, ".TownSelector__options .TownSelector-option", timeout)
+    first_option.click()
+    time.sleep(4)
 
 
 def recover_to_home(driver) -> None:

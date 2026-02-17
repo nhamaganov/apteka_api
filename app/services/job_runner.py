@@ -1,4 +1,5 @@
 import asyncio
+import time
 from typing import Dict, List
 
 from app.core.settings import PARSE_MAX_RETRIES, PARSE_PAUSE, PARSE_TIMEOUT
@@ -6,8 +7,7 @@ from app.core.storage import log_path, result_file_path, status_path, result_pat
 from app.core.queue import JobQueue
 from app.core.time import now_iso
 from app.utils.xls import build_enriched_xlsx, build_flat_xlsx
-from app.services.apteka_parser import make_driver, recover_to_home, close_modal_if_any, parse_one_query
-
+from app.services.apteka_parser import make_driver, recover_to_home, close_modal_if_any, parse_one_query, select_city
 
 
 async def process_job(job_id: str) -> None:
@@ -21,6 +21,7 @@ async def process_job(job_id: str) -> None:
 
     queries_data = read_json(queries_path(job_id))
     queries = queries_data.get("queries", [])
+    selected_city = queries_data.get("city", "")
     total = len(queries)
 
     status["progress"]["total"] = total
@@ -33,6 +34,7 @@ async def process_job(job_id: str) -> None:
         driver = make_driver()
         recover_to_home(driver)
         close_modal_if_any(driver, timeout=2)
+        select_city(driver, selected_city, timeout=8)
 
         for q in queries:
             st_latest = read_json(status_path(job_id))

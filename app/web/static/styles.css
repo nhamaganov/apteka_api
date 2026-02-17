@@ -317,6 +317,21 @@ button.btn-sm:disabled {
   min-width: 170px;
 }
 
+.city-label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.city-select {
+  min-width: 150px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  font-size: 14px;
+}
+
 .actions-inline .btn-sm {
   margin-right: 0;
 }

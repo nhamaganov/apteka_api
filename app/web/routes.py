@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, UploadFile, File, HTTPException
+from fastapi import APIRouter, Request, UploadFile, File, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
@@ -34,7 +34,7 @@ def index(request: Request):
 
 
 @router.post("/upload")
-async def upload(request: Request, file: UploadFile = File(...)):
+async def upload(request: Request, file: UploadFile = File(...), city: str = Form("Иркутск")):
     """Обрабатывает загрузку Excel в UI и ставит задачу в очередь."""
     ensure_job_store()
 
@@ -53,7 +53,7 @@ async def upload(request: Request, file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Не смог прочитать Excel: {e}")
 
-    write_json(queries_path(job_id), {"queries": queries, "some_text": "text"})
+    write_json(queries_path(job_id), {"queries": queries, "city": city})
 
     display_name = make_display_name(file.filename)
 
