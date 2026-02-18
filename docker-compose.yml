@@ -1,0 +1,8 @@
+services:
+  apteka_api:
+    build: .
+    container_name: apteka_api
+    ports:
+      - "8000:8000"
+    
+    restart: unless-stopped
