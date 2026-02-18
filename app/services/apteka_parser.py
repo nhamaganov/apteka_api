@@ -825,36 +825,6 @@ def parse_product_page_one_item(
     return False, {"input_name": query_name, "message": not_found_message, "input_qty": expected_qty}
 
 
-
-def parse_product_page(driver, query, timeout) -> List[Dict]:
-    """Парсит страницу товара и возвращает подходящие позиции."""
-    vars_ = get_variants_from_product_page(driver)
-    print("BEFORE:", [(v.qty, v.selected) for v in vars_])
-
-    ok = select_variant_qty(driver, 84, timeout=8)
-    print("SELECT OK:", ok)
-
-    vars_2 = get_variants_from_product_page(driver)
-    print("AFTER:", [(v.qty, v.selected) for v in vars_2])
-    
-    title_el = find_visible(driver, By.CSS_SELECTOR, "h1.ViewProductPage__title", timeout=timeout)
-    title = (title_el.text or "").strip()
-    
-    if not title or "набор" in title.lower():
-        return []
-
-    price = ""
-    price_els = driver.find_elements(By.CSS_SELECTOR, "span.moneyprice__content")
-    if price_els:
-        price = price_els[0].text.replace("\n", "").replace(" ", "").strip()
-
-
-    if not is_name_match(query, title):
-        return []
-
-    return [{"input_name": query, "title": title, "price": str(price)}]
-
-
 def _collect_matching_card_links(driver, query_name: str) -> List[Dict[str, str]]:
     """Собирает ссылки карточек, названия которых подходят по нестрогому совпадению."""
     cards = driver.find_elements(By.CSS_SELECTOR, ".catalog-card.card-flex")
