@@ -2,8 +2,8 @@ services:
   apteka_api:
     build: .
     container_name: apteka_api
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     environment:
       JOB_STORE: /app/job_store
       PARSE_TIMEOUT: 10
@@ -12,4 +12,15 @@ services:
       PARSE_VARIANT_SETTLE_DELAY: 4.0
     volumes:
       - ./job_store:/app/job_store
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: apteka_nginx
+    depends_on:
+      - apteka_api
+    ports:
+      - "${NGINX_HOST_PORT:-8080}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped

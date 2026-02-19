@@ -4,8 +4,8 @@
 
 ## Что добавлено
 - `Dockerfile` для сборки FastAPI-приложения с Chromium и ChromeDriver (для Selenium).
-- `docker-compose.yml` для быстрого запуска на сервере.
-- `.dockerignore` для уменьшения контекста сборки.
+- `docker-compose.yml` для запуска API за Nginx в Docker.
+- `nginx/default.conf` с ограничением доступа только для IP `31.47.189.42`.
 - Параметризация путей браузера через переменные `CHROME_BIN` и `CHROMEDRIVER_PATH`.
 
 ## Быстрый запуск
@@ -14,12 +14,37 @@
 docker compose up --build -d
 ```
 
-Приложение будет доступно на `http://localhost:8000`.
+После запуска:
+- Nginx публикуется на порту `8080` хоста по умолчанию.
+- FastAPI доступен только через Nginx.
+- Доступ к сервису разрешён только с IP `31.47.189.42`.
+
+Открывать сервис:
+- `http://<IP_СЕРВЕРА>:8080/`
+- `http://<IP_СЕРВЕРА>:8080/health`
+
+## Если порт 8080 нужно изменить
+
+Можно задать порт через переменную окружения:
+
+```bash
+NGINX_HOST_PORT=8090 docker compose up --build -d
+```
+
+Тогда доступ будет по `http://<IP_СЕРВЕРА>:8090`.
+
+## Ошибка `address already in use`
+
+Если видите ошибку вида `failed to bind host port ... address already in use`, это значит, что выбранный порт уже занят на сервере.
+
+Проверьте и освободите порт либо выберите другой через `NGINX_HOST_PORT`.
 
 ## Проверка
 
+С разрешённого IP:
+
 ```bash
-curl http://localhost:8000/health
+curl http://<IP_СЕРВЕРА>:8080/health
 ```
 
 Ожидаемый ответ:
@@ -27,6 +52,8 @@ curl http://localhost:8000/health
 ```json
 {"status":"ok"}
 ```
+
+С любого другого IP Nginx вернёт `403 Forbidden`.
 
 ## Перенос на сервер
 
@@ -36,7 +63,7 @@ curl http://localhost:8000/health
    ```bash
    docker compose up --build -d
    ```
-4. (Опционально) Настройте reverse proxy (Nginx/Caddy) и HTTPS.
+4. Убедитесь, что в firewall открыт только порт `80` (и при необходимости `22` для SSH).
 
 ## Полезные команды
 
