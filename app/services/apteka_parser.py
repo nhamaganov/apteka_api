@@ -1,6 +1,7 @@
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+import os
 import random
 import re
 import time
@@ -53,14 +54,19 @@ def find_clickable(driver_or_el, by, value, timeout) -> w:
 
 def make_driver() -> webdriver.Chrome:
     """Создание дравера браузера"""
-    # For linux
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1400,900")
-    options.binary_location = "/usr/bin/chromium-browser"
-    service = Service("/usr/bin/chromedriver")
+
+    chrome_bin = os.environ.get("CHROME_BIN")
+    if chrome_bin:
+        options.binary_location = chrome_bin
+
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+    service = Service(chromedriver_path)
+
 
     return webdriver.Chrome(service=service, options=options)
     

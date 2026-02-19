@@ -4,5 +4,12 @@ services:
     container_name: apteka_api
     ports:
       - "8000:8000"
-    
+    environment:
+      JOB_STORE: /app/job_store
+      PARSE_TIMEOUT: 10
+      PARSE_MAX_RETRIES: 10
+      PARSE_PAUSE: 3
+      PARSE_VARIANT_SETTLE_DELAY: 4.0
+    volumes:
+      - ./job_store:/app/job_store
     restart: unless-stopped
