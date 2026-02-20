@@ -1,4 +1,5 @@
 import asyncio
+import time
 from datetime import datetime
 from typing import Dict, List
 
@@ -11,6 +12,11 @@ from app.services.apteka_parser import make_driver, recover_to_home, close_modal
 
 
 async def process_job(job_id: str) -> None:
+    """Запускает полный цикл парсинга для одной задачи в отдельном потоке."""
+    await asyncio.to_thread(_process_job_sync, job_id)
+
+
+def _process_job_sync(job_id: str) -> None:
     """Запускает полный цикл парсинга для одной задачи."""
     status = read_json(status_path(job_id))
     status["status"] = "running"
@@ -98,7 +104,7 @@ async def process_job(job_id: str) -> None:
             status["progress"]["processed"] += 1
             write_json(status_path(job_id), status)
 
-            await asyncio.sleep(PARSE_PAUSE)
+            time.sleep(PARSE_PAUSE)
 
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items})
 
