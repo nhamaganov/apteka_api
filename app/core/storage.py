@@ -83,6 +83,15 @@ def list_jobs(limit: int = 20) -> List[Dict[str, Any]]:
         try:
             data = read_json(st)
             data["job_id"] = data.get("job_id") or p.name
+            if not data.get("city"):
+                q_path = p / "queries.json"
+                if q_path.exists():
+                    try:
+                        q_data = read_json(q_path)
+                        data["city"] = q_data.get("city", "")
+                    except Exception:
+                        data["city"] = ""
+
             created_at_iso = data.get("created_at", "")
             created_at_dt = datetime.fromisoformat(created_at_iso)
             data["created_at"] = created_at_dt.strftime("%d-%m-%Y %H:%M:%S")

@@ -63,13 +63,28 @@ async function fetchLog(jobId, tail=200) {
     return await r.json();
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
 function renderLog(payload) {
   const el = document.getElementById("log");
   if (!el) return;
 
-  const lines = payload.lines || [];
-  el.textContent = lines.join("\n") || "(лог пуст)";
   const nearBottom = (el.scrollTop + el.clientHeight) >= (el.scrollHeight - 40);
+  const lines = payload.lines || [];
+  const html = lines.map((line) => {
+    const safeLine = escapeHtml(line);
+    if (line.includes("Найдено: Не найдено")) {
+      return `<span class="log-line-not-found">${safeLine}</span>`;
+    }
+    return safeLine;
+  }).join("\n");
+
+  el.innerHTML = html || "(лог пуст)";
   if (nearBottom) {
     el.scrollTop = el.scrollHeight;
   }

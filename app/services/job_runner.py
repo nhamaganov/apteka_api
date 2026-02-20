@@ -1,5 +1,5 @@
 import asyncio
-import time
+from datetime import datetime
 from typing import Dict, List
 
 from app.core.settings import PARSE_MAX_RETRIES, PARSE_PAUSE, PARSE_TIMEOUT
@@ -66,7 +66,8 @@ async def process_job(job_id: str) -> None:
                 write_json(status_path(job_id), status)
                 continue
 
-            job_log(job_id, f"QUERY start: {q_name!r} qty={q_qty!r} sum={q_sum} raw={raw!r}")
+            query_line = f"{q_name} - {q_qty}" if q_qty is not None else q_name
+            job_log(job_id, f"Запрос: {query_line}")
 
             outcome, items = parse_one_query(
                 driver,
@@ -76,20 +77,15 @@ async def process_job(job_id: str) -> None:
                 expected_qty=q_qty,
                 qty_is_sum=q_sum,
                 raw_input=raw,
-                job_id=job_id,
+                job_id=None,
             )
 
-            job_log(job_id, f"QUERY done: {q!r} outcome={outcome} items={len(items)}")
-            if items:
-                for it in items[:3]:
-                    job_log(
-                        job_id,
-                        f"item: title={it.get('title')!r} "
-                        f"price={it.get('price')!r} "
-                        f"input_qty={it.get('input_qty')!r} "
-                        f"found_qty={it.get('found_qty')!r} "
-                        f"message={it.get('message')!r}"
-                    )
+            found_title = "Не найдено"
+            if outcome == "matched" and items:
+                first_title = (items[0].get("title") or "").strip()
+                if first_title:
+                    found_title = first_title
+            job_log(job_id, f"Найдено: {found_title}")
             if outcome == "matched":
                 status["progress"]["matched"] += 1
                 all_items.extend(items)
@@ -103,14 +99,6 @@ async def process_job(job_id: str) -> None:
             write_json(status_path(job_id), status)
 
             await asyncio.sleep(PARSE_PAUSE)
-
-        job_log(
-            job_id,
-            f"JOB done: processed={status['progress']['processed']} "
-            f"matched={status['progress']['matched']} "
-            f"not_found={status['progress']['not_found']} "
-            f"failed={status['progress']['failed']}"
-        )
 
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items})
 
@@ -160,7 +148,7 @@ def job_log(job_id: str, msg: str) -> None:
     """Добавляет строку в лог задачи."""
     p = log_path(job_id)
     p.parent.mkdir(parents=True, exist_ok=True)
-    line = f"{now_iso()} | {msg}\n"
+    line = f"{datetime.now().strftime('%d-%m %H:%M')} | {msg}\n"
     with p.open("a", encoding="utf-8") as f:
         f.write(line)
 

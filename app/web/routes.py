@@ -66,6 +66,7 @@ async def upload(request: Request, file: UploadFile = File(...), city: str = For
     data = status.model_dump()
     data["display_name"] = display_name
     data["filename"] = file.filename
+    data["city"] = city
     data["cancelled"] = False
 
     write_json(status_path(job_id), data)
