@@ -11,7 +11,7 @@ services:
       PARSE_PAUSE: 3
       PARSE_VARIANT_SETTLE_DELAY: 4.0
     volumes:
-      - ./job_store:/app/job_store
+      - job_store_data:/app/job_store
     restart: unless-stopped
 
   nginx:
@@ -24,3 +24,6 @@ services:
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
+    
+volumes:
+  job_store_data:
