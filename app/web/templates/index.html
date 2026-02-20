@@ -68,7 +68,7 @@
                   {{ STATUS_RU.get(j.status, j.status) }}
                 </span>
               </td>
-              
+
               <td>{{ j.city or "-" }}</td>
         
               <td>
@@ -76,10 +76,10 @@
                   <div>
                     <b>{{ j.progress.processed or 0 }}</b> из <b>{{ j.progress.total or 0 }}</b>
                   </div>
-                  <div class="hint">
-                    Найдено: {{ j.progress.matched or 0}}
-                    Не найдено: {{ j.progress.not_found or 0}}
-                    Ошибки: {{ j.progress.failed or 0}}
+                  <div class="hint progress-details">
+                    <div>Найдено: {{ j.progress.matched or 0}}</div>
+                    <div>Не найдено: {{ j.progress.not_found or 0}}</div>
+                    <div>Ошибки: {{ j.progress.failed or 0}}</div>
                   </div>
                 {% else %}
                   -
