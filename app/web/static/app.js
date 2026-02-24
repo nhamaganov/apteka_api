@@ -37,14 +37,25 @@ function render(st, ui = {}) {
 
   const cancelBtn = document.getElementById("cancelBtn");
   if (cancelBtn) {
-    cancelBtn.disabled = finished || cancelPending;
+    const disableCancel = finished || cancelPending;
+    cancelBtn.disabled = disableCancel;
+    cancelBtn.setAttribute("aria-disabled", String(disableCancel));
+    cancelBtn.classList.toggle("disabled", disableCancel);
     if (cancelPending) cancelBtn.textContent = "Останавливаю...";
     if (st.status === "cancelled") cancelBtn.textContent = "Остановлено";
   }
 
   const deleteBtn = document.getElementById("deleteBtn");
   if (deleteBtn) {
-    deleteBtn.disabled = !finished;
+    const disableDelete = !finished;
+    deleteBtn.disabled = disableDelete;
+    if (disableDelete) {
+      deleteBtn.setAttribute("disabled", "");
+    } else {
+      deleteBtn.removeAttribute("disabled");
+    }
+    deleteBtn.setAttribute("aria-disabled", String(disableDelete));
+    deleteBtn.classList.toggle("disabled", disableDelete);
   }
 
   const statusRu = STATUS_RU[st.status] || st.status
@@ -119,12 +130,16 @@ async function loop() {
     cancelBtn.addEventListener("click", async () => {
       cancelPending = true;
       cancelBtn.disabled = true;
+      cancelBtn.setAttribute("aria-disabled", "true");
+      cancelBtn.classList.add("disabled");
       cancelBtn.textContent = "Останавливаю...";
       try {
         await cancelJob(jobId);
       } catch (e) {
         cancelPending = false;
         cancelBtn.disabled = false;
+        cancelBtn.setAttribute("aria-disabled", "false");
+        cancelBtn.classList.remove("disabled");
         cancelBtn.textContent = "Остановить";
         alert("Не удалось остановить: " + e);
       }

@@ -91,19 +91,19 @@ a:hover { text-decoration: underline; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .actions-left {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
 }
 
 .actions-delete {
-  margin-left: auto;
+  margin-left: 0;
   flex: 0 0 auto;
 }
 
@@ -210,7 +210,15 @@ button.btn-sm:active {
 button.btn:disabled,
 button.btn-sm:disabled {
   opacity: 0.55;
+  pointer-events: none;
   cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn:disabled:hover,
+button.btn:disabled:hover,
+button.btn-sm:disabled:hover {
+  background: inherit;
 }
 
 /* ---------- Progress ---------- */
