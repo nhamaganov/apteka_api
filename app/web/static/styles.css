@@ -91,12 +91,20 @@ a:hover { text-decoration: underline; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .actions-left {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.actions-delete {
+  margin-left: auto;
+  flex: 0 0 auto;
 }
 
 /* optional helper */
@@ -410,6 +418,8 @@ button.btn-sm:disabled {
   .wrap { padding: 0 12px; margin: 18px auto 36px; }
   .grid { grid-template-columns: 1fr; }
   .tbl th:nth-child(4), .tbl td:nth-child(4) { display: none; } /* hide created_at on narrow screens */
+  .actions-row { align-items: stretch; }
+  .actions-delete { margin-left: 0; }
 }
 
 

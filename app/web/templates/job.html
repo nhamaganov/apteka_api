@@ -40,7 +40,7 @@
         <button id="cancelBtn" class="btn stop">Остановить</button>
         <a class="btn" href="/">Новая загрузка</a>
       </div>
-      <form action="/ui/{{ job_id }}/delete" method="post" onsubmit="return confirm('Удалить задачу {{ job_id }}?');">
+      <form class="actions-delete" action="/ui/{{ job_id }}/delete" method="post" onsubmit="return confirm('Удалить задачу {{ job_id }}?');">
         <button id="deleteBtn" class="btn danger" type="submit" disabled>Удалить</button>
       </form>
     </div>

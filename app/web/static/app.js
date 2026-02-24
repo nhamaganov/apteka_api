@@ -31,7 +31,9 @@ function setDownload(jobId, enabled) {
 
 function render(st, ui = {}) {
   const finished = (st.status === "done" || st.status === "failed" || st.status === "cancelled");
-  const cancelPending = Boolean(ui.cancelPending) && !finished;
+  const cancelRequested = Boolean(st.cancelled);
+  const cancelPending = (Boolean(ui.cancelPending) || cancelRequested) && !finished;
+
 
   const cancelBtn = document.getElementById("cancelBtn");
   if (cancelBtn) {
