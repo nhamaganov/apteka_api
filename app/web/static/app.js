@@ -30,11 +30,17 @@ function setDownload(jobId, enabled) {
 }
 
 function render(st) {
+  const finished = (st.status === "done" || st.status === "failed" || st.status === "cancelled");
+
   const cancelBtn = document.getElementById("cancelBtn");
   if (cancelBtn) {
-    const finished = (st.status === "done" || st.status === "failed" || st.status === "cancelled"); 
     cancelBtn.disabled = finished;
     if (st.status === "cancelled") cancelBtn.textContent = "Остановлено";
+  }
+
+  const deleteBtn = document.getElementById("deleteBtn");
+  if (deleteBtn) {
+    deleteBtn.disabled = !finished;
   }
 
   const statusRu = STATUS_RU[st.status] || st.status
