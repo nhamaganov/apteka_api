@@ -35,7 +35,19 @@ def _process_job_sync(job_id: str) -> None:
 
     driver = None
     all_items: List[Dict] = []
-    
+
+    def cancel_requested() -> bool:
+        return bool(read_json(status_path(job_id)).get("cancelled"))
+
+    def finalize_cancel() -> None:
+        status["status"] = "cancelled"
+        status["finished_at"] = now_iso()
+        write_json(status_path(job_id), status)
+
+        write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "cancelled": True})
+        _write_result_csv(job_id, all_items, status, selected_city)
+        job_log(job_id, "JOB cancelled by user")
+
     try:
         driver = make_driver()
         recover_to_home(driver)
@@ -43,16 +55,8 @@ def _process_job_sync(job_id: str) -> None:
         select_city(driver, selected_city, timeout=8)
 
         for q in queries:
-            st_latest = read_json(status_path(job_id))
-            if st_latest.get("cancelled"):
-                status["status"] = "cancelled"
-                status["finished_at"] = now_iso()
-                write_json(status_path(job_id), status)
-
-                write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "cancelled": True})
-                _write_result_csv(job_id, all_items, status, selected_city)
-
-                job_log(job_id, "JOB cancelled by user")
+            if cancel_requested():
+                finalize_cancel()
                 return
             
             if isinstance(q, str):
@@ -86,6 +90,10 @@ def _process_job_sync(job_id: str) -> None:
                 job_id=None,
             )
 
+            if cancel_requested():
+                finalize_cancel()
+                return
+
             found_title = "Не найдено"
             if outcome == "matched" and items:
                 first_title = (items[0].get("title") or "").strip()
@@ -106,10 +114,18 @@ def _process_job_sync(job_id: str) -> None:
 
             time.sleep(PARSE_PAUSE)
 
+            if cancel_requested():
+                finalize_cancel()
+                return
+
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items})
 
         _write_result_csv(job_id, all_items, status, selected_city)
 
+        if cancel_requested():
+            finalize_cancel()
+            return
+        
         status["status"] = "done"
         status["finished_at"] = now_iso()
         write_json(status_path(job_id), status)

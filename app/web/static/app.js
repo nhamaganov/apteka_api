@@ -75,7 +75,9 @@ function renderLog(payload) {
   if (!el) return;
 
   const nearBottom = (el.scrollTop + el.clientHeight) >= (el.scrollHeight - 40);
-  const lines = payload.lines || [];
+  const lines = (payload.lines || []).filter((line) => (
+    line.includes("Запрос:") || line.includes("Найдено:")
+  ));
   const html = lines.map((line) => {
     const safeLine = escapeHtml(line);
     if (line.includes("Найдено: Не найдено")) {
