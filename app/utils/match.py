@@ -1,8 +1,8 @@
-import pandas as pd
 import re
 
 from collections import defaultdict
 from rapidfuzz import fuzz
+from app.utils.xls import read_spreadsheet
 
 
 UNITS_PATTERN = r"(мг|г|мкг|мл|ме|%|iu)"
@@ -21,7 +21,7 @@ def cut_before_bracket(name: str) -> str:
 
 def load_products_from_xls(path: str) -> list[str]:
     """Загружает названия товаров из Excel-файла."""
-    df = pd.read_excel(path, header=None)
+    df = read_spreadsheet(path)
 
     header_row = header_col = None
 

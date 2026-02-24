@@ -19,7 +19,7 @@
 
     <div class="box upload-panel">
       <form class="upload-form" action="/upload" method="post" enctype="multipart/form-data">
-        <input id="uploadFile" class="file-input" type="file" name="file" accept=".xls,.xlsx" required />
+        <input id="uploadFile" class="file-input" type="file" name="file" accept=".xls,.xlsx,.ods" required />
         <label for="uploadFile" class="btn file-picker">Выбрать файл</label>
         <span id="selectedFileName" class="selected-file">Файл не выбран</span>
         <label class="city-label" for="citySelect">Город:</label>
@@ -33,7 +33,7 @@
           Запустить парсинг
         </button>
       </form>
-      <p class="hint">Поддерживаются файлы Excel формата .xls и .xlsx.</p>
+      <p class="hint">Поддерживаются файлы формата .xls, .xlsx и .ods.</p>
     </div>
 
     <h2>Последние задачи</h2>

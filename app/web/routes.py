@@ -39,8 +39,8 @@ async def upload(request: Request, file: UploadFile = File(...), city: str = For
     ensure_job_store()
 
     ext = Path(file.filename).suffix.lower()
-    if ext not in {".xls", ".xlsx"}:
-        raise HTTPException(status_code=400, detail="Загрузи .xls или .xlsx")
+    if ext not in {".xls", ".xlsx", ".ods"}:
+        raise HTTPException(status_code=400, detail="Загрузи .xls, .xlsx или .ods")
 
     job_id = uuid.uuid4().hex
     job_dir(job_id).mkdir(parents=True, exist_ok=True)

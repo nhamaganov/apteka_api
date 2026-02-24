@@ -7,6 +7,16 @@ from openpyxl.styles import Alignment, Border, Side, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 
+def read_spreadsheet(path: str) -> pd.DataFrame:
+    """Читает .xls/.xlsx/.ods в DataFrame с корректным engine."""
+    lower_path = path.lower()
+    if lower_path.endswith(".ods"):
+        try:
+            return pd.read_excel(path, header=None, engine="odf")
+        except ImportError as exc:
+            raise ValueError("Для чтения .ods нужно установить пакет odfpy") from exc
+    return pd.read_excel(path, header=None)
+
 
 def build_query_name(raw: str) -> str:
 
@@ -27,7 +37,7 @@ def build_query_name(raw: str) -> str:
 
 def extract_queries_from_excel(path: str) -> list[dict]:
     """Из передаваемого excel-файла возвращает все названия и количества препаратов"""
-    df = pd.read_excel(path, header=None)
+    df = read_spreadsheet(path)
 
     header_row = header_col = None
 
@@ -84,7 +94,7 @@ def _apteka_title(city_name: str) -> str:
 def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: str = "") -> None:
 
     """Дополняет исходную таблицу результатами парсинга и сохраняет как XLSX."""
-    df = pd.read_excel(path, header=None)
+    df = read_spreadsheet(path)
 
     header_row = header_col = None
     for r in range(df.shape[0]):

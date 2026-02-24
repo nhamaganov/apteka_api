@@ -22,7 +22,7 @@ async def create_job(request: Request, file: UploadFile = File(...), city: str =
     Создаёт новую задачу (job) на основе загруженного Excel-файла.
 
     Функция:
-    - принимает Excel-файл (.xls или .xlsx);
+    - принимает Excel-файл (.xls, .xlsx или .ods);
     - сохраняет файл в директорию задачи;
     - извлекает запросы из Excel;
     - инициализирует статус и результаты задачи;
@@ -41,8 +41,8 @@ async def create_job(request: Request, file: UploadFile = File(...), city: str =
     ensure_job_store()
 
     ext = Path(file.filename).suffix.lower()
-    if ext not in {".xls", ".xlsx"}:
-        raise HTTPException(status_code=400, detail="Upload .xls or .xlsx file")
+    if ext not in {".xls", ".xlsx", ".ods"}:
+        raise HTTPException(status_code=400, detail="Upload .xls, .xlsx or .ods file")
 
     job_id = uuid.uuid4().hex
     job_dir(job_id).mkdir(parents=True, exist_ok=True)
