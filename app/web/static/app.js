@@ -29,12 +29,14 @@ function setDownload(jobId, enabled) {
   }
 }
 
-function render(st) {
+function render(st, ui = {}) {
   const finished = (st.status === "done" || st.status === "failed" || st.status === "cancelled");
+  const cancelPending = Boolean(ui.cancelPending) && !finished;
 
   const cancelBtn = document.getElementById("cancelBtn");
   if (cancelBtn) {
-    cancelBtn.disabled = finished;
+    cancelBtn.disabled = finished || cancelPending;
+    if (cancelPending) cancelBtn.textContent = "Останавливаю...";
     if (st.status === "cancelled") cancelBtn.textContent = "Остановлено";
   }
 
@@ -107,16 +109,19 @@ async function cancelJob(jobId) {
 async function loop() {
   const jobId = window.JOB_ID;
   let stopped = false;
+  let cancelPending = false;
 
   setDownload(jobId, false);
   const cancelBtn = document.getElementById("cancelBtn");
   if (cancelBtn) {
     cancelBtn.addEventListener("click", async () => {
+      cancelPending = true;
       cancelBtn.disabled = true;
       cancelBtn.textContent = "Останавливаю...";
       try {
         await cancelJob(jobId);
       } catch (e) {
+        cancelPending = false;
         cancelBtn.disabled = false;
         cancelBtn.textContent = "Остановить";
         alert("Не удалось остановить: " + e);
@@ -127,7 +132,7 @@ async function loop() {
   while (!stopped) {
     try {
       const st = await fetchStatus(jobId);
-      const done = render(st);
+      const done = render(st, { cancelPending });
       const logPayload = await fetchLog(jobId, 200);
       renderLog(logPayload)
       if (done) break;
