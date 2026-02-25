@@ -323,11 +323,22 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
     header_alignment = Alignment(vertical="top", wrap_text=True)
     content_alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
 
+    price_numeric_columns = {
+        insert_col,
+        *(idx for idx in [base_price_col, purchase_price_col, site_price_col] if idx is not None),
+    }
+
     for row_idx in range(df.shape[0]):
         for col_idx in range(df.shape[1]):
             value = df.iat[row_idx, col_idx]
             cell = ws.cell(row=row_idx + 1 + ROW_OFFSET, column=col_idx + 1)
-            cell.value = "" if pd.isna(value) else value
+            if pd.isna(value):
+                cell.value = ""
+            elif row_idx > header_row and col_idx in price_numeric_columns:
+                numeric_value = _to_number(value)
+                cell.value = numeric_value if numeric_value is not None else value
+            else:
+                cell.value = value
             if row_idx == header_row:
                 cell.alignment = header_alignment
             else:
@@ -343,7 +354,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             base_markup_cell = ws.cell(row=excel_row, column=base_markup_col)
             base_markup_cell.value = (
                 f"=IF(OR({parsed_price_letter}{excel_row}=0,{base_price_letter}{excel_row}=0),"
-                f"0,{parsed_price_letter}{excel_row}/({base_price_letter}{excel_row}-1)-1)"
+                f"0,{parsed_price_letter}{excel_row}/{base_price_letter}{excel_row}-1)"
             )
             base_markup_cell.number_format = '0.00%'
 
@@ -355,7 +366,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             purchase_markup_cell = ws.cell(row=excel_row, column=purchase_markup_col)
             purchase_markup_cell.value = (
                 f"=IF(OR({parsed_price_letter}{excel_row}=0,{purchase_price_letter}{excel_row}=0),"
-                f"0,{parsed_price_letter}{excel_row}/({purchase_price_letter}{excel_row}-1)-1)"
+                f"0,{parsed_price_letter}{excel_row}/{purchase_price_letter}{excel_row}-1)"
             )
             purchase_markup_cell.number_format = '0.00%'
 
@@ -367,7 +378,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             site_markup_cell = ws.cell(row=excel_row, column=site_markup_col)
             site_markup_cell.value = (
                 f"=IF(OR({parsed_price_letter}{excel_row}=0,{site_price_letter}{excel_row}=0),"
-                f"0,{parsed_price_letter}{excel_row}/({site_price_letter}{excel_row}-1)-1)"
+                f"0,{parsed_price_letter}{excel_row}/{site_price_letter}{excel_row}-1)"
             )
             site_markup_cell.number_format = '0.00%'
 
