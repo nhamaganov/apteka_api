@@ -221,6 +221,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         df.iat[header_row, insert_col + offset] = name
 
     apteka_rows: dict[int, list[object]] = {}
+    not_found_rows: set[int] = set()
 
     base_price_col: Optional[int] = None
     purchase_price_col: Optional[int] = None
@@ -253,6 +254,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         query_qty, _ = extract_qty_from_xls_row(raw_text)
         candidates = by_input_name.get(_key(query_name), [])
         if not candidates:
+            not_found_rows.add(r)
             continue
 
         item = None
@@ -264,6 +266,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             if item is None:
                 # Если в строке есть явное количество, не подставляем запись
                 # с другим количеством, чтобы не перепутать соседние позиции.
+                not_found_rows.add(r)
                 continue
         else:
             for candidate in candidates:
@@ -312,6 +315,10 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             item.get("message", ""),
         ]
 
+        message = str(item.get("message", "")).strip().lower()
+        if message.startswith("не найден"):
+            not_found_rows.add(r)
+
     wb = Workbook()
     ws = wb.active
 
@@ -345,6 +352,12 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
                 cell.alignment = content_alignment
 
     parsed_price_letter = get_column_letter(insert_col + 1)
+
+    not_found_fill = PatternFill(fill_type="solid", fgColor="F4CCCC")
+    for row_idx in not_found_rows:
+        excel_row = row_idx + 1 + ROW_OFFSET
+        for col_idx in range(insert_col, insert_col + len(main_extra_headers)):
+            ws.cell(row=excel_row, column=col_idx + 1).fill = not_found_fill
 
     if base_price_col is not None:
         base_price_letter = get_column_letter(base_price_col + 1)
