@@ -168,17 +168,39 @@ def select_city(driver, city: str, timeout: int = 8) -> None:
         timeout,
     )
     city_link.click()
-    time.sleep(4)
-
     city_input = find_visible(driver, By.ID, "search-city", timeout)
     city_input.click()
     city_input.send_keys(Keys.CONTROL, "a")
     city_input.send_keys(Keys.BACKSPACE)
     city_input.send_keys(city_name)
-    time.sleep(4)
+    city_name_lower = city_name.lower()
 
-    first_option = find_clickable(driver, By.CSS_SELECTOR, ".TownSelector__options .TownSelector-option", timeout)
-    first_option.click()
+    def matching_city_option(_driver):
+        options = _driver.find_elements(By.CSS_SELECTOR, ".TownSelector__options .TownSelector-option")
+        for option in options:
+            try:
+                option_text = (option.text or "").strip()
+            except StaleElementReferenceException:
+                continue
+
+            if not option_text:
+                continue
+            if city_name_lower not in option_text.lower():
+                continue
+            if option.is_displayed() and option.is_enabled():
+                return option
+        return False
+
+    option = w(driver, timeout).until(matching_city_option)
+    option.click()
+
+    w(driver, timeout).until(
+        lambda _driver: city_name_lower in (
+            (_driver.find_element(By.CSS_SELECTOR, "span.SiteHeaderTop__link.SiteHeaderTop__city").text or "")
+            .strip()
+            .lower()
+        )
+    )
     time.sleep(4)
 
 
