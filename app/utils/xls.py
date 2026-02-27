@@ -68,8 +68,9 @@ def extract_queries_from_excel(path: str) -> list[dict]:
             continue
         
         qty, qty_is_sum = extract_qty_from_xls_row(raw)
+        dosage = extract_dosage_from_xls_row(raw)
 
-        key = (name.lower(), qty)
+        key = (name.lower(), qty, dosage)
         if key in seen:
             continue
         seen.add(key)
@@ -78,6 +79,7 @@ def extract_queries_from_excel(path: str) -> list[dict]:
         queries.append({
             "name": name,
             "qty": qty,
+            "dosage": dosage,
             "qty_is_sum": qty_is_sum,
             "row": raw, # потом можно убрать, для лога!!! 
         })
@@ -135,6 +137,19 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
 
     def _key(name: str) -> str:
         return (name or "").strip().lower().replace("ё", "е")
+
+    def _normalize_dosage(value: object) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip().lower().replace("ё", "е")
+        if not text:
+            return None
+        m = re.search(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", text, flags=re.IGNORECASE)
+        if not m:
+            return None
+        amount = m.group(1).replace(",", ".")
+        unit = m.group(2).lower()
+        return f"{amount} {unit}"
 
     def _to_number(value: object) -> Optional[float]:
         if value is None:
@@ -252,29 +267,42 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             continue
 
         query_qty, _ = extract_qty_from_xls_row(raw_text)
+        query_dosage = _normalize_dosage(extract_dosage_from_xls_row(raw_text))
         candidates = by_input_name.get(_key(query_name), [])
         if not candidates:
             not_found_rows.add(r)
             continue
 
-        item = None
+        # 1) Сначала фильтруем кандидатов по количеству.
+        qty_matched: list[dict] = []
         if query_qty is not None:
-            for candidate in candidates:
-                if candidate.get("input_qty") == query_qty:
-                    item = candidate
-                    break
-            if item is None:
+            qty_matched = [c for c in candidates if c.get("input_qty") == query_qty]
+            if not qty_matched:
                 # Если в строке есть явное количество, не подставляем запись
                 # с другим количеством, чтобы не перепутать соседние позиции.
                 not_found_rows.add(r)
                 continue
         else:
-            for candidate in candidates:
-                if candidate.get("input_qty") is None:
-                    item = candidate
-                    break
-            if item is None:
-                item = candidates[0]
+            qty_matched = [c for c in candidates if c.get("input_qty") is None]
+            if not qty_matched:
+                qty_matched = candidates
+
+        # 2) Затем фильтруем по дозировке, если она задана в строке.
+        def _candidate_dosage(candidate: dict) -> Optional[str]:
+            return _normalize_dosage(candidate.get("input_dosage"))
+
+        item = None
+        if query_dosage is not None:
+            dosage_matched = [c for c in qty_matched if _candidate_dosage(c) == query_dosage]
+            if not dosage_matched:
+                # Если в исходной строке есть дозировка, не подставляем
+                # запись с другой дозировкой.
+                not_found_rows.add(r)
+                continue
+            item = dosage_matched[0]
+        else:
+            no_dosage = [c for c in qty_matched if _candidate_dosage(c) is None]
+            item = no_dosage[0] if no_dosage else qty_matched[0]
 
         parsed_price = item.get("price", "")
 
@@ -568,3 +596,17 @@ def extract_qty_from_xls_row(text: str) -> Tuple[Optional[int], bool]:
             return None, True
         return sum(int(p) for p in parts), True
     return int(raw), False
+
+
+def extract_dosage_from_xls_row(text: str) -> Optional[str]:
+    """Возвращает дозировку из текста в нормализованном виде (например, `10 мг`)."""
+    if not text:
+        return None
+
+    m = re.search(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", text, flags=re.IGNORECASE)
+    if not m:
+        return None
+
+    value = m.group(1).replace(",", ".")
+    unit = m.group(2).lower()
+    return f"{value} {unit}"

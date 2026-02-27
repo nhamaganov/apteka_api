@@ -62,11 +62,13 @@ def _process_job_sync(job_id: str) -> None:
             if isinstance(q, str):
                 q_name = q
                 q_qty = None
+                q_dosage = None
                 q_sum = False
                 raw = q
             else:
                 q_name = (q.get("name")or "").strip()
                 q_qty = q.get("qty", None)
+                q_dosage = q.get("dosage", None)
                 q_sum = bool(q.get("qty_is_sum", False))
                 raw = q.get("raw") or q_name
 
@@ -76,8 +78,10 @@ def _process_job_sync(job_id: str) -> None:
                 write_json(status_path(job_id), status)
                 continue
 
-            query_line = f"{q_name} - {q_qty}" if q_qty is not None else q_name
-            job_log(job_id, f"Запрос: {query_line}")
+            query_parts = [f"Название: {q_name}"]
+            query_parts.append(f"Кол-во: {q_qty}" if q_qty is not None else "Кол-во: —")
+            query_parts.append(f"Дозировка: {q_dosage}" if q_dosage else "Дозировка: —")
+            job_log(job_id, f"Запрос: {' | '.join(query_parts)}")
 
             outcome, items = parse_one_query(
                 driver,
@@ -85,6 +89,7 @@ def _process_job_sync(job_id: str) -> None:
                 PARSE_TIMEOUT,
                 PARSE_MAX_RETRIES,
                 expected_qty=q_qty,
+                expected_dosage=q_dosage,
                 qty_is_sum=q_sum,
                 raw_input=raw,
                 job_id=None,

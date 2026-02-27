@@ -531,6 +531,25 @@ class Variant:
     qty: int
     href: str
     selected: bool
+    dosage: Optional[str] = None
+
+
+def normalize_dosage(raw: Optional[str]) -> Optional[str]:
+    """Нормализует дозировку к виду `<значение> <единица>` (например, `10 мг`)."""
+    if not raw:
+        return None
+
+    s = str(raw).strip().lower().replace("ё", "е")
+    s = s.replace(",", ".")
+    m = re.search(r"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", s)
+    if not m:
+        return None
+    return f"{m.group(1)} {m.group(2)}"
+
+
+def extract_dosage_from_text(text: str) -> Optional[str]:
+    """Извлекает дозировку из произвольного текста."""
+    return normalize_dosage(text)
 
 
 def get_variants_from_product_page(driver) -> List[Variant]:
@@ -539,41 +558,85 @@ def get_variants_from_product_page(driver) -> List[Variant]:
     qty (число 'В упаковке'), href (ссылка на этот вариант), selected.
     Если блока вариантов нет — вернёт [].
     """
-    variants: List[Variant]  = []
+    variants: List[Variant] = []
 
-    buttons = driver.find_elements(By.CSS_SELECTOR, ".ProductVariants__level .variantButton")
-    for btn in buttons:
-        try:
-            selected = (btn.get_attribute("aria-selected") == "true")
+    levels = driver.find_elements(By.CSS_SELECTOR, ".ProductVariants__level")
+    if levels:
+        for level in levels:
+            level_dosage = None
+            try:
+                label_b = level.find_elements(By.CSS_SELECTOR, ".ProductVariants__levelLabel b")
+                if label_b:
+                    level_dosage = normalize_dosage(label_b[0].text or "")
+            except Exception:
+                level_dosage = None
 
-            qty = None
-            qty_b = btn.find_elements(By.CSS_SELECTOR, ".variantButton__descr em + b")
-            if qty_b:
-                txt = (qty_b[0].text or "").strip()
-                if txt.isdigit():
-                    qty = int(txt)
+            buttons = level.find_elements(By.CSS_SELECTOR, ".variantButton")
+            for btn in buttons:
+                try:
+                    selected = (btn.get_attribute("aria-selected") == "true")
 
-            if qty is None:
-                descr_text = (btn.text or "")
-                m = re.search(r"В упаковке:\s*(\d+)", descr_text)
-                if m:
-                    qty = int(m.group(1))
-            
-            if qty is None:
+                    qty = None
+                    qty_b = btn.find_elements(By.CSS_SELECTOR, ".variantButton__descr em + b")
+                    if qty_b:
+                        txt = (qty_b[0].text or "").strip()
+                        if txt.isdigit():
+                            qty = int(txt)
+
+                    if qty is None:
+                        descr_text = (btn.text or "")
+                        m = re.search(r"В упаковке:\s*(\d+)", descr_text)
+                        if m:
+                            qty = int(m.group(1))
+
+                    if qty is None:
+                        continue
+
+                    link = btn.find_elements(By.CSS_SELECTOR, "a.variantButton__link[href]")
+                    if not link:
+                        continue
+                    href = link[0].get_attribute("href")
+
+                    variants.append(Variant(qty=qty, href=href, selected=selected, dosage=level_dosage))
+
+                except StaleElementReferenceException:
+                    continue
+                except Exception:
+                    continue
+    else:
+        buttons = driver.find_elements(By.CSS_SELECTOR, ".ProductVariants .variantButton")
+        for btn in buttons:
+            try:
+                selected = (btn.get_attribute("aria-selected") == "true")
+
+                qty = None
+                qty_b = btn.find_elements(By.CSS_SELECTOR, ".variantButton__descr em + b")
+                if qty_b:
+                    txt = (qty_b[0].text or "").strip()
+                    if txt.isdigit():
+                        qty = int(txt)
+
+                if qty is None:
+                    descr_text = (btn.text or "")
+                    m = re.search(r"В упаковке:\s*(\d+)", descr_text)
+                    if m:
+                        qty = int(m.group(1))
+
+                if qty is None:
+                    continue
+
+                link = btn.find_elements(By.CSS_SELECTOR, "a.variantButton__link[href]")
+                if not link:
+                    continue
+                href = link[0].get_attribute("href")
+
+                variants.append(Variant(qty=qty, href=href, selected=selected, dosage=None))
+
+            except StaleElementReferenceException:
+                continue
+            except Exception:
                 continue
 
-            link = btn.find_elements(By.CSS_SELECTOR, "a.variantButton__link[href]")
-            if not link:
-                continue
-            href = link[0].get_attribute("href")
-
-            variants.append(Variant(qty=qty, href=href, selected=selected))
-        
-        except StaleElementReferenceException:
-            continue
-        except Exception:
-            continue
-    
     return variants
 
 
@@ -667,7 +730,8 @@ def wait_variant_selected(driver, target_qty: int, timeout: int = 6) -> bool:
 
 def select_variant_qty(
     driver,
-    target_qty: int,
+    target_qty: Optional[int],
+    target_dosage: Optional[str] = None,
     timeout: int = 8,
     job_id: str | None = None,
 ) -> bool:
@@ -680,25 +744,46 @@ def select_variant_qty(
             job_log(job_id, "VARIANT: no variants found on page")
         return False
 
+    normalized_target_dosage = normalize_dosage(target_dosage)
+    has_dosage_variants = any(v.dosage for v in variants)
+    effective_target_dosage = normalized_target_dosage if has_dosage_variants else None
+
+    # если на странице нет разбивки вариантов по дозировкам,
+    # не блокируем переключение по количеству из-за target_dosage.
+    if job_id and normalized_target_dosage and not has_dosage_variants:
+        job_log(
+            job_id,
+            f"VARIANT dosage filter skipped: target={normalized_target_dosage!r}, no dosage variants on page"
+        )
+
     # если нужный вариант уже выбран
     for v in variants:
-        if v.qty == target_qty and v.selected:
+        qty_ok = (target_qty is None or v.qty == target_qty)
+        dosage_ok = (effective_target_dosage is None or v.dosage == effective_target_dosage)
+        if qty_ok and dosage_ok and v.selected:
             if job_id:
                 job_log(
                     job_id,
-                    f"VARIANT already selected qty={target_qty} "
+                    f"VARIANT already selected qty={target_qty} dosage={normalized_target_dosage!r} "
                     f"url={driver.current_url} "
                     f"price_meta={get_price_marker(driver)!r}"
                 )
             return True
 
-    target = next((v for v in variants if v.qty == target_qty), None)
+    target = None
+    for v in variants:
+        qty_ok = (target_qty is None or v.qty == target_qty)
+        dosage_ok = (effective_target_dosage is None or v.dosage == effective_target_dosage)
+        if qty_ok and dosage_ok:
+            target = v
+            break
+
     if not target:
         if job_id:
             job_log(
                 job_id,
-                f"VARIANT qty={target_qty} not found. "
-                f"available={[v.qty for v in variants]}"
+                f"VARIANT qty={target_qty} dosage={effective_target_dosage!r} not found. "
+                f"available={[{'qty': v.qty, 'dosage': v.dosage} for v in variants]}"
             )
         return False
 
@@ -709,7 +794,7 @@ def select_variant_qty(
     if job_id:
         job_log(
             job_id,
-            f"VARIANT switch start qty={target_qty} "
+            f"VARIANT switch start qty={target_qty} dosage={effective_target_dosage!r} "
             f"old_url={old_url} "
             f"old_price_meta={old_price!r} "
             f"href={target.href}"
@@ -722,14 +807,14 @@ def select_variant_qty(
     if job_id:
         job_log(
             job_id,
-            f"VARIANT navigation check qty={target_qty} "
+            f"VARIANT navigation check qty={target_qty} dosage={normalized_target_dosage!r} "
             f"target={_normalized_product_url(target.href)!r} "
             f"current={_normalized_product_url(driver.current_url)!r} "
             f"ok={nav_ok}"
         )
 
     # ждём, что вариант стал selected
-    ok_selected = wait_variant_selected(driver, target_qty, timeout)
+    ok_selected = wait_variant_selected(driver, target.qty, timeout)
 
     # ждём, что цена обновилась
     ok_price = wait_price_updated(driver, old_marker=old_price, timeout=timeout)
@@ -745,13 +830,13 @@ def select_variant_qty(
     # ===== ПОСЛЕ ПЕРЕХОДА =====
     new_url = driver.current_url
     new_price = get_price_marker(driver)
-    new_price_component = _get_selected_variant_component_price(driver, expected_qty=target_qty)
+    new_price_component = _get_selected_variant_component_price(driver, expected_qty=target.qty)
     new_price_offer = _get_sidebar_offer_price(driver)
 
     if job_id:
         job_log(
             job_id,
-            f"VARIANT switch end qty={target_qty} "
+            f"VARIANT switch end qty={target_qty} dosage={normalized_target_dosage!r} "
             f"ok_selected={ok_selected} "
             f"ok_price_change={ok_price} "
             f"new_url={new_url} "
@@ -767,6 +852,7 @@ def parse_product_page_one_item(
     driver,
     query_name: str,
     expected_qty: Optional[int],
+    expected_dosage: Optional[str],
     qty_is_sum: bool,
     timeout: int = 6,
     job_id: str | None = None,
@@ -785,10 +871,22 @@ def parse_product_page_one_item(
     if not is_name_match(query_name, title):
         return False, {"input_name": query_name, "message": "Нет подходящего варианта"}
     
+    normalized_expected_dosage = normalize_dosage(expected_dosage)
+    variants = get_variants_from_product_page(driver)
+    has_dosage_variants = any(v.dosage for v in variants)
+
     warning_message = ""
     if qty_is_sum:
         warning_message = "Уточните цену на сайте, возможны неточности"
 
+    found_dosage = extract_dosage_from_text(title)
+
+    def dosage_matches_current() -> bool:
+        if not normalized_expected_dosage:
+            return True
+        if not has_dosage_variants:
+            return True
+        return found_dosage == normalized_expected_dosage
 
     def build_price_and_message() -> Tuple[str, str]:
         """Читает цену и сообщение по текущему состоянию product page."""
@@ -808,6 +906,27 @@ def parse_product_page_one_item(
 
 
     if expected_qty is None:
+        if not dosage_matches_current():
+            if select_variant_qty(
+                driver,
+                target_qty=None,
+                target_dosage=normalized_expected_dosage,
+                timeout=timeout,
+                job_id=job_id,
+            ):
+                title_el = find_visible(driver, By.CSS_SELECTOR, "h1.ViewProductPage__title", timeout=timeout)
+                title = (title_el.text or "").strip()
+                found_dosage = extract_dosage_from_text(title)
+            else:
+                not_found_message = "Нет подходящего варианта"
+                if warning_message:
+                    not_found_message = f"{warning_message} | {not_found_message}"
+                return False, {
+                    "input_name": query_name,
+                    "message": not_found_message,
+                    "input_dosage": normalized_expected_dosage,
+                }
+
         price, message = build_price_and_message()
         found_qty = extract_pack_qty_from_title(title)
         return True, {
@@ -815,26 +934,37 @@ def parse_product_page_one_item(
             "title": title,
             "price": price,
             "input_qty": expected_qty,
+            "input_dosage": normalized_expected_dosage,
             "found_qty": found_qty,
+            "found_dosage": found_dosage,
             "message": message
         }
 
     found_qty = extract_pack_qty_from_title(title)
-    if found_qty == expected_qty:
+    if found_qty == expected_qty and dosage_matches_current():
         price, message = build_price_and_message()
         return True, {
             "input_name": query_name,
             "title": title,
             "price": price,
             "input_qty": expected_qty,
+            "input_dosage": normalized_expected_dosage,
             "found_qty": found_qty,
+            "found_dosage": found_dosage,
             "message": message
         }
     
-    if select_variant_qty(driver, expected_qty, timeout=timeout, job_id=job_id):
+    if select_variant_qty(
+        driver,
+        expected_qty,
+        target_dosage=normalized_expected_dosage,
+        timeout=timeout,
+        job_id=job_id,
+    ):
         title_el = find_visible(driver, By.CSS_SELECTOR, "h1.ViewProductPage__title", timeout=timeout)
         title2 = (title_el.text or "").strip()
         found_qty2 = extract_pack_qty_from_title(title2)
+        found_dosage2 = extract_dosage_from_text(title2)
         price2, message2 = build_price_and_message()
 
         return True, {
@@ -842,7 +972,9 @@ def parse_product_page_one_item(
             "title": title2,
             "price": price2,
             "input_qty": expected_qty,
+            "input_dosage": normalized_expected_dosage,
             "found_qty": found_qty2 if found_qty2 is not None else expected_qty,
+            "found_dosage": found_dosage2,
             "message": message2
         }
 
@@ -850,7 +982,12 @@ def parse_product_page_one_item(
     if warning_message:
         not_found_message = f"{warning_message} | {not_found_message}"
 
-    return False, {"input_name": query_name, "message": not_found_message, "input_qty": expected_qty}
+    return False, {
+        "input_name": query_name,
+        "message": not_found_message,
+        "input_qty": expected_qty,
+        "input_dosage": normalized_expected_dosage,
+    }
 
 
 def _collect_matching_card_links(driver, query_name: str) -> List[Dict[str, str]]:
@@ -892,6 +1029,7 @@ def parse_cards(
     driver,
     query_name: str,
     expected_qty: Optional[int],
+    expected_dosage: Optional[str],
     qty_is_sum: bool,
     timeout: int,
     job_id: Optional[str] = None,
@@ -926,6 +1064,7 @@ def parse_cards(
                     driver,
                     query_name=query_name,
                     expected_qty=expected_qty,
+                    expected_dosage=expected_dosage,
                     qty_is_sum=qty_is_sum,
                     timeout=timeout,
                     job_id=job_id,
@@ -960,6 +1099,7 @@ def parse_one_query(
     timeout,
     max_retries,
     expected_qty: Optional[int] = None,
+    expected_dosage: Optional[str] = None,
     qty_is_sum: bool = False,
     raw_input: Optional[str] = None,
     job_id: Optional[str] = None,
@@ -973,6 +1113,9 @@ def parse_one_query(
         job_log(job_id, msg)
 
     try:
+        if expected_dosage is None:
+            expected_dosage = extract_dosage_from_text(raw_input or query_name or "")
+
         run_search_with_retry(driver, query_name, timeout=timeout, max_retries=max_retries)
 
         page_type = "unknown"
@@ -987,6 +1130,7 @@ def parse_one_query(
 
         log_parse(
             f"PARSE start: query={query_name!r} raw={raw_input!r} expected_qty={expected_qty!r} "
+            f"expected_dosage={expected_dosage!r} "
             f"qty_is_sum={qty_is_sum!r} url={driver.current_url!r} page={page_type}"
         )
 
@@ -1002,7 +1146,10 @@ def parse_one_query(
                 page_title = ""
 
             variants = get_variants_from_product_page(driver)
-            variants_dump = [{"qty": v.qty, "selected": v.selected, "href": v.href} for v in variants]
+            variants_dump = [
+                {"qty": v.qty, "dosage": v.dosage, "selected": v.selected, "href": v.href}
+                for v in variants
+            ]
             log_parse(
                 f"PARSE context product: title={page_title!r} variants={variants_dump!r} "
                 f"price_visible={_get_visible_product_page_price(driver)!r} "
@@ -1013,6 +1160,7 @@ def parse_one_query(
                 driver,
                 query_name=query_name,
                 expected_qty=expected_qty,
+                expected_dosage=expected_dosage,
                 qty_is_sum=qty_is_sum,
                 timeout=timeout,
                 job_id=job_id,
@@ -1041,6 +1189,7 @@ def parse_one_query(
             driver,
             query_name=query_name,
             expected_qty=expected_qty,
+            expected_dosage=expected_dosage,
             qty_is_sum=qty_is_sum,
             timeout=timeout,
             job_id=job_id,
