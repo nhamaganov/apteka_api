@@ -539,6 +539,19 @@ def normalize_dosage(raw: Optional[str]) -> Optional[str]:
     if not raw:
         return None
 
+    def _format_number(value: float) -> str:
+        return (f"{value:.6f}").rstrip("0").rstrip(".")
+
+    def _normalize_part(value: float, unit: str) -> tuple[float, str]:
+        unit = unit.lower()
+        # Приводим массовые единицы к единому виду (мг), чтобы
+        # `30 мкг` и `0.03 мг` считались одинаковой дозировкой.
+        if unit == "мкг":
+            return value / 1000, "мг"
+        if unit == "г":
+            return value * 1000, "мг"
+        return value, unit
+
     s = str(raw).strip().lower().replace("ё", "е")
     s = s.replace(",", ".")
 
@@ -549,10 +562,12 @@ def normalize_dosage(raw: Optional[str]) -> Optional[str]:
     )
     source = primary_block.group(0) if primary_block else s
 
-    parts = [
-        f"{m.group(1)} {m.group(2)}"
-        for m in re.finditer(r"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", source)
-    ]
+
+    parts = []
+    for m in re.finditer(r"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", source):
+        raw_value = float(m.group(1))
+        value, unit = _normalize_part(raw_value, m.group(2))
+        parts.append(f"{_format_number(value)} {unit}")
     if not parts:
         return None
 
@@ -908,7 +923,13 @@ def parse_product_page_one_item(
         found_dosage = extract_dosage_from_text(title)
 
         qty_ok = expected_qty is None or found_qty == expected_qty
-        dosage_ok = normalized_expected_dosage is None or found_dosage == normalized_expected_dosage
+        dosage_ok = (
+            normalized_expected_dosage is None
+            or found_dosage == normalized_expected_dosage
+            # На некоторых сайтах дозировка отсутствует в заголовке карточки.
+            # В таком случае принимаем вариант, если количество совпало.
+            or (found_dosage is None and qty_ok)
+        )
         return qty_ok and dosage_ok, found_qty, found_dosage
 
     def build_item(title: str, found_qty: Optional[int], found_dosage: Optional[str]) -> Dict:

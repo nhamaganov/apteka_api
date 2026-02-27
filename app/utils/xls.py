@@ -145,10 +145,23 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         if not text:
             return None
 
-        parts = [
-            f"{m.group(1).replace(',', '.')} {m.group(2).lower()}"
-            for m in re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", text, flags=re.IGNORECASE)
-        ]
+        def _format_number(number: float) -> str:
+            return (f"{number:.6f}").rstrip("0").rstrip(".")
+
+        def _normalize_part(number: float, unit: str) -> tuple[float, str]:
+            unit = unit.lower()
+            if unit == "мкг":
+                return number / 1000, "мг"
+            if unit == "г":
+                return number * 1000, "мг"
+            return number, unit
+
+        parts = []
+        for m in re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", text, flags=re.IGNORECASE):
+            raw_number = float(m.group(1).replace(',', '.'))
+            number, unit = _normalize_part(raw_number, m.group(2))
+            parts.append(f"{_format_number(number)} {unit}")
+
         if not parts:
             return None
         return " + ".join(parts)
