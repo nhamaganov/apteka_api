@@ -144,12 +144,14 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         text = str(value).strip().lower().replace("ё", "е")
         if not text:
             return None
-        m = re.search(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", text, flags=re.IGNORECASE)
-        if not m:
+
+        parts = [
+            f"{m.group(1).replace(',', '.')} {m.group(2).lower()}"
+            for m in re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", text, flags=re.IGNORECASE)
+        ]
+        if not parts:
             return None
-        amount = m.group(1).replace(",", ".")
-        unit = m.group(2).lower()
-        return f"{amount} {unit}"
+        return " + ".join(parts)
 
     def _to_number(value: object) -> Optional[float]:
         if value is None:
@@ -599,14 +601,15 @@ def extract_qty_from_xls_row(text: str) -> Tuple[Optional[int], bool]:
 
 
 def extract_dosage_from_xls_row(text: str) -> Optional[str]:
-    """Возвращает дозировку из текста в нормализованном виде (например, `10 мг`)."""
+    """Возвращает дозировку из текста в нормализованном виде (например, `5 мг + 2 мг`)."""
     if not text:
         return None
 
-    m = re.search(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", text, flags=re.IGNORECASE)
-    if not m:
+    parts = [
+        f"{m.group(1).replace(',', '.')} {m.group(2).lower()}"
+        for m in re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", text, flags=re.IGNORECASE)
+    ]
+    if not parts:
         return None
 
-    value = m.group(1).replace(",", ".")
-    unit = m.group(2).lower()
-    return f"{value} {unit}"
+    return " + ".join(parts)
