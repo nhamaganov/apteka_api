@@ -542,9 +542,16 @@ def normalize_dosage(raw: Optional[str]) -> Optional[str]:
     s = str(raw).strip().lower().replace("ё", "е")
     s = s.replace(",", ".")
 
+    primary_block = re.search(
+        r"(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)(?:\s*\+\s*(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%))*",
+        s,
+        flags=re.IGNORECASE,
+    )
+    source = primary_block.group(0) if primary_block else s
+
     parts = [
         f"{m.group(1)} {m.group(2)}"
-        for m in re.finditer(r"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", s)
+        for m in re.finditer(r"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", source)
     ]
     if not parts:
         return None

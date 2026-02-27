@@ -605,9 +605,17 @@ def extract_dosage_from_xls_row(text: str) -> Optional[str]:
     if not text:
         return None
 
+    normalized_text = str(text).lower().replace("ё", "е")
+    primary_block = re.search(
+        r"(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)(?:\s*\+\s*(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%))*",
+        normalized_text,
+        flags=re.IGNORECASE,
+    )
+    source = primary_block.group(0) if primary_block else normalized_text
+
     parts = [
         f"{m.group(1).replace(',', '.')} {m.group(2).lower()}"
-        for m in re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", text, flags=re.IGNORECASE)
+        for m in re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", source, flags=re.IGNORECASE)
     ]
     if not parts:
         return None
