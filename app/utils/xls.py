@@ -156,8 +156,26 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
                 return number * 1000, "мг"
             return number, unit
 
+        def _parentheses_depth(raw_text: str, idx: int) -> int:
+            depth = 0
+            for pos, ch in enumerate(raw_text):
+                if pos >= idx:
+                    break
+                if ch == "(":
+                    depth += 1
+                elif ch == ")" and depth > 0:
+                    depth -= 1
+            return depth
+
+        matches = list(re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", text, flags=re.IGNORECASE))
+        if not matches:
+            return None
+
+        min_depth = min(_parentheses_depth(text, m.start()) for m in matches)
+        selected_matches = [m for m in matches if _parentheses_depth(text, m.start()) == min_depth]
+
         parsed_parts: list[tuple[float, str]] = []
-        for m in re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", text, flags=re.IGNORECASE):
+        for m in selected_matches:
             raw_number = float(m.group(1))
             number, unit = _normalize_part(raw_number, m.group(2))
             parsed_parts.append((number, unit))
@@ -633,14 +651,29 @@ def extract_dosage_from_xls_row(text: str) -> Optional[str]:
     def _format_number(number: float) -> str:
         return (f"{number:.6f}").rstrip("0").rstrip(".")
 
+    def _parentheses_depth(raw_text: str, idx: int) -> int:
+        depth = 0
+        for pos, ch in enumerate(raw_text):
+            if pos >= idx:
+                break
+            if ch == "(":
+                depth += 1
+            elif ch == ")" and depth > 0:
+                depth -= 1
+        return depth
+
+    matches = list(re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", normalized_text, flags=re.IGNORECASE))
+    if not matches:
+        return None
+
+    min_depth = min(_parentheses_depth(normalized_text, m.start()) for m in matches)
+    selected_matches = [m for m in matches if _parentheses_depth(normalized_text, m.start()) == min_depth]
+
     parsed_parts: list[tuple[float, str]] = []
-    for m in re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", normalized_text, flags=re.IGNORECASE):
+    for m in selected_matches:
         raw_number = float(m.group(1))
         number, unit = _normalize_part(raw_number, m.group(2))
         parsed_parts.append((number, unit))
-    if not parsed_parts:
-        return None
-
     parsed_parts.sort(key=lambda part: (part[1], part[0]))
     parts = [f"{_format_number(number)} {unit}" for number, unit in parsed_parts]
 

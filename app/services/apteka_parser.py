@@ -555,8 +555,26 @@ def normalize_dosage(raw: Optional[str]) -> Optional[str]:
     s = str(raw).strip().lower().replace("ё", "е")
     s = re.sub(r"(?<=\d)\s*[\.,]\s*(?=\d)", ".", s)
 
+    def _parentheses_depth(text: str, idx: int) -> int:
+        depth = 0
+        for pos, ch in enumerate(text):
+            if pos >= idx:
+                break
+            if ch == "(":
+                depth += 1
+            elif ch == ")" and depth > 0:
+                depth -= 1
+        return depth
+
+    matches = list(re.finditer(r"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", s))
+    if not matches:
+        return None
+
+    min_depth = min(_parentheses_depth(s, m.start()) for m in matches)
+    selected_matches = [m for m in matches if _parentheses_depth(s, m.start()) == min_depth]
+
     parsed_parts: list[tuple[float, str]] = []
-    for m in re.finditer(r"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", s):
+    for m in selected_matches:
         raw_value = float(m.group(1))
         value, unit = _normalize_part(raw_value, m.group(2))
         parsed_parts.append((value, unit))
