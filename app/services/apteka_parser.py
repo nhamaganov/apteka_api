@@ -553,23 +553,18 @@ def normalize_dosage(raw: Optional[str]) -> Optional[str]:
         return value, unit
 
     s = str(raw).strip().lower().replace("ё", "е")
-    s = s.replace(",", ".")
+    s = re.sub(r"(?<=\d)\s*[\.,]\s*(?=\d)", ".", s)
 
-    primary_block = re.search(
-        r"(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)(?:\s*\+\s*(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%))*",
-        s,
-        flags=re.IGNORECASE,
-    )
-    source = primary_block.group(0) if primary_block else s
-
-
-    parts = []
-    for m in re.finditer(r"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", source):
+    parsed_parts: list[tuple[float, str]] = []
+    for m in re.finditer(r"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", s):
         raw_value = float(m.group(1))
         value, unit = _normalize_part(raw_value, m.group(2))
-        parts.append(f"{_format_number(value)} {unit}")
-    if not parts:
+        parsed_parts.append((value, unit))
+    if not parsed_parts:
         return None
+
+    parsed_parts.sort(key=lambda part: (part[1], part[0]))
+    parts = [f"{_format_number(value)} {unit}" for value, unit in parsed_parts]
 
     return " + ".join(parts)
 

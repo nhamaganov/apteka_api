@@ -156,14 +156,16 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
                 return number * 1000, "мг"
             return number, unit
 
-        parts = []
+        parsed_parts: list[tuple[float, str]] = []
         for m in re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", text, flags=re.IGNORECASE):
-            raw_number = float(m.group(1).replace(',', '.'))
+            raw_number = float(m.group(1))
             number, unit = _normalize_part(raw_number, m.group(2))
-            parts.append(f"{_format_number(number)} {unit}")
+            parsed_parts.append((number, unit))
 
-        if not parts:
+        if not parsed_parts:
             return None
+        parsed_parts.sort(key=lambda part: (part[1], part[0]))
+        parts = [f"{_format_number(number)} {unit}" for number, unit in parsed_parts]
         return " + ".join(parts)
 
     def _to_number(value: object) -> Optional[float]:
@@ -619,18 +621,27 @@ def extract_dosage_from_xls_row(text: str) -> Optional[str]:
         return None
 
     normalized_text = str(text).lower().replace("ё", "е")
-    primary_block = re.search(
-        r"(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)(?:\s*\+\s*(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%))*",
-        normalized_text,
-        flags=re.IGNORECASE,
-    )
-    source = primary_block.group(0) if primary_block else normalized_text
+    normalized_text = re.sub(r"(?<=\d)\s*[\.,]\s*(?=\d)", ".", normalized_text)
+    def _normalize_part(number: float, unit: str) -> tuple[float, str]:
+        unit = unit.lower()
+        if unit == "мкг":
+            return number / 1000, "мг"
+        if unit == "г":
+            return number * 1000, "мг"
+        return number, unit
 
-    parts = [
-        f"{m.group(1).replace(',', '.')} {m.group(2).lower()}"
-        for m in re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", source, flags=re.IGNORECASE)
-    ]
-    if not parts:
+    def _format_number(number: float) -> str:
+        return (f"{number:.6f}").rstrip("0").rstrip(".")
+
+    parsed_parts: list[tuple[float, str]] = []
+    for m in re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", normalized_text, flags=re.IGNORECASE):
+        raw_number = float(m.group(1))
+        number, unit = _normalize_part(raw_number, m.group(2))
+        parsed_parts.append((number, unit))
+    if not parsed_parts:
         return None
+
+    parsed_parts.sort(key=lambda part: (part[1], part[0]))
+    parts = [f"{_format_number(number)} {unit}" for number, unit in parsed_parts]
 
     return " + ".join(parts)

@@ -2,6 +2,7 @@ import asyncio
 import time
 from datetime import datetime
 from typing import Dict, List
+from zoneinfo import ZoneInfo
 
 from app.core.settings import PARSE_MAX_RETRIES, PARSE_PAUSE, PARSE_TIMEOUT
 from app.core.storage import log_path, result_file_path, status_path, result_path, queries_path, read_json, write_json, upload_path
@@ -175,7 +176,7 @@ def job_log(job_id: str, msg: str) -> None:
     """Добавляет строку в лог задачи."""
     p = log_path(job_id)
     p.parent.mkdir(parents=True, exist_ok=True)
-    line = f"{datetime.now().strftime('%d-%m %H:%M')} | {msg}\n"
+    line = f"{datetime.now(ZoneInfo('Asia/Irkutsk')).strftime('%d-%m %H:%M')} | {msg}\n"
     with p.open("a", encoding="utf-8") as f:
         f.write(line)
 
