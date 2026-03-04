@@ -620,7 +620,13 @@ def extract_qty_from_xls_row(text: str) -> Tuple[Optional[int], bool]:
     if not text:
         return None, False
 
-    m = re.search(r"\bN\s*([\d+]+)\b", text, flags=re.IGNORECASE)
+    m = re.search(r"(?:\bN\s*|№\s*)([\d+]+)\b", text, flags=re.IGNORECASE)
+    if not m:
+        m = re.search(
+            r"\b(\d+)\s*(?:шт\.?|амп\.?|ампул(?:а|ы)?|шпр\.?|шприц(?:-?тюб)?)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
     if not m:
         return None, False
 
@@ -662,7 +668,14 @@ def extract_dosage_from_xls_row(text: str) -> Optional[str]:
                 depth -= 1
         return depth
 
-    matches = list(re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", normalized_text, flags=re.IGNORECASE))
+    potency_units = r"ме|мe|me|ед|le|ле|iu"
+    matches = list(
+        re.finditer(
+            rf"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|{potency_units}|%)\b",
+            normalized_text,
+            flags=re.IGNORECASE,
+        )
+    )
     if not matches:
         return None
 
@@ -673,8 +686,10 @@ def extract_dosage_from_xls_row(text: str) -> Optional[str]:
     for m in selected_matches:
         raw_number = float(m.group(1))
         number, unit = _normalize_part(raw_number, m.group(2))
+        if unit in {"мe", "me", "ед", "le", "ле", "iu"}:
+            unit = "ме"
         parsed_parts.append((number, unit))
-    parsed_parts.sort(key=lambda part: (part[1], part[0]))
+    parsed_parts = sorted(set(parsed_parts), key=lambda part: (part[1], part[0]))
     parts = [f"{_format_number(number)} {unit}" for number, unit in parsed_parts]
 
     return " + ".join(parts)

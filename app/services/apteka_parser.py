@@ -566,7 +566,9 @@ def normalize_dosage(raw: Optional[str]) -> Optional[str]:
                 depth -= 1
         return depth
 
-    matches = list(re.finditer(r"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", s))
+    potency_units = r"ме|мe|me|ед|le|ле|iu"
+    matches = list(re.finditer(rf"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|{potency_units}|%)\b", s))
+
     if not matches:
         return None
 
@@ -577,10 +579,13 @@ def normalize_dosage(raw: Optional[str]) -> Optional[str]:
     for m in selected_matches:
         raw_value = float(m.group(1))
         value, unit = _normalize_part(raw_value, m.group(2))
+        if unit in {"мe", "me", "ед", "le", "ле", "iu"}:
+            unit = "ме"
         parsed_parts.append((value, unit))
     if not parsed_parts:
         return None
 
+    parsed_parts = sorted(set(parsed_parts), key=lambda part: (part[1], part[0]))
     parsed_parts.sort(key=lambda part: (part[1], part[0]))
     parts = [f"{_format_number(value)} {unit}" for value, unit in parsed_parts]
 
@@ -590,6 +595,25 @@ def normalize_dosage(raw: Optional[str]) -> Optional[str]:
 def extract_dosage_from_text(text: str) -> Optional[str]:
     """Извлекает дозировку из произвольного текста."""
     return normalize_dosage(text)
+
+
+def is_dosage_compatible(expected: Optional[str], found: Optional[str]) -> bool:
+    """Проверяет, совместимы ли дозировки на уровне компонентов."""
+    expected_norm = normalize_dosage(expected)
+    found_norm = normalize_dosage(found)
+
+    if expected_norm is None or found_norm is None:
+        return False
+
+    if expected_norm == found_norm:
+        return True
+
+    expected_parts = set(expected_norm.split(" + "))
+    found_parts = set(found_norm.split(" + "))
+    if not expected_parts or not found_parts:
+        return False
+
+    return bool(expected_parts & found_parts)
 
 
 def get_variants_from_product_page(driver) -> List[Variant]:
@@ -906,12 +930,15 @@ def parse_product_page_one_item(
 
     normalized_expected_dosage = normalize_dosage(expected_dosage)
     warning_message = "Уточните цену на сайте, возможны неточности" if qty_is_sum else ""
+    dosage_warning: str = ""
 
     def build_price_and_message() -> Tuple[str, str]:
         """Читает цену и сообщение по текущему состоянию product page."""
         messages: list[str] = []
         if warning_message:
             messages.append(warning_message)
+        if dosage_warning:
+            messages.append(dosage_warning)
 
         unavailable = _is_product_unavailable(driver)
         unavailable_price = _get_unavailable_last_price(driver) if unavailable else ""
@@ -926,6 +953,7 @@ def parse_product_page_one_item(
         return (title_el.text or "").strip()
 
     def title_matches_expected(title: str) -> Tuple[bool, Optional[int], Optional[str]]:
+        nonlocal dosage_warning
         if not title or "набор" in title.lower():
             return False, None, None
 
@@ -936,13 +964,22 @@ def parse_product_page_one_item(
         found_dosage = extract_dosage_from_text(title)
 
         qty_ok = expected_qty is None or found_qty == expected_qty
-        dosage_ok = (
-            normalized_expected_dosage is None
-            or found_dosage == normalized_expected_dosage
-            # На некоторых сайтах дозировка отсутствует в заголовке карточки.
-            # В таком случае принимаем вариант, если количество совпало.
-            or (found_dosage is None and qty_ok)
-        )
+        dosage_ok = normalized_expected_dosage is None or found_dosage == normalized_expected_dosage
+
+        # На некоторых карточках заголовок содержит эквивалентную или неполную
+        # запись дозировки. Если количество упаковки совпадает и есть хотя бы
+        # частичное пересечение компонент дозировки — пропускаем с предупреждением.
+        if not dosage_ok and qty_ok and is_dosage_compatible(normalized_expected_dosage, found_dosage):
+            dosage_warning = (
+                f"Дозировка отличается: ожидалось '{normalized_expected_dosage}', "
+                f"на сайте '{found_dosage}'"
+            )
+            dosage_ok = True
+
+        # На некоторых сайтах дозировка отсутствует в заголовке карточки.
+        # В таком случае принимаем вариант, если количество совпало.
+        if not dosage_ok and found_dosage is None and qty_ok:
+            dosage_ok = True
         return qty_ok and dosage_ok, found_qty, found_dosage
 
     def build_item(title: str, found_qty: Optional[int], found_dosage: Optional[str]) -> Dict:
