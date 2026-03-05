@@ -923,22 +923,19 @@ def parse_product_page_one_item(
 ) -> Tuple[bool, Dict]:
     """
     Возвращает (ok, item).
-    ok=True -> нашли нужный вариант (строго 1)
-    ok=False -> либо нет подходящего варианта, либо не совпало название
+    ok=True -> нашли лучший вариант среди доступных на странице.
     """
     del job_id  # параметр оставлен для совместимости сигнатуры
 
     normalized_expected_dosage = normalize_dosage(expected_dosage)
     warning_message = "Уточните цену на сайте, возможны неточности" if qty_is_sum else ""
-    dosage_warning: str = ""
 
-    def build_price_and_message() -> Tuple[str, str]:
-        """Читает цену и сообщение по текущему состоянию product page."""
+    def build_price_and_message(extra_message: str = "") -> Tuple[str, str]:
         messages: list[str] = []
         if warning_message:
             messages.append(warning_message)
-        if dosage_warning:
-            messages.append(dosage_warning)
+        if extra_message:
+            messages.append(extra_message)
 
         unavailable = _is_product_unavailable(driver)
         unavailable_price = _get_unavailable_last_price(driver) if unavailable else ""
@@ -952,38 +949,71 @@ def parse_product_page_one_item(
         title_el = find_visible(driver, By.CSS_SELECTOR, "h1.ViewProductPage__title", timeout=timeout)
         return (title_el.text or "").strip()
 
-    def title_matches_expected(title: str) -> Tuple[bool, Optional[int], Optional[str]]:
-        nonlocal dosage_warning
+    def get_current_variant_qty() -> Optional[int]:
+        try:
+            variants = get_variants_from_product_page(driver)
+        except Exception:
+            return None
+
+        selected_qty = next((v.qty for v in variants if v.selected), None)
+        if selected_qty is not None:
+            return selected_qty
+
+        if len(variants) == 1:
+            return variants[0].qty
+
+        return None
+
+    def evaluate_title_match(title: str) -> Tuple[bool, float, Optional[int], Optional[str], str]:
         if not title or "набор" in title.lower():
-            return False, None, None
+            return False, 0.0, None, None, ""
 
         if not is_name_match(query_name, title):
-            return False, None, None
+            return False, 0.0, None, None, ""
 
         found_qty = extract_pack_qty_from_title(title)
+        if found_qty is None:
+            found_qty = get_current_variant_qty()
+
         found_dosage = extract_dosage_from_text(title)
 
-        qty_ok = expected_qty is None or found_qty == expected_qty
-        dosage_ok = normalized_expected_dosage is None or found_dosage == normalized_expected_dosage
+        criteria_scores: list[float] = []
+        notes: list[str] = []
 
-        # На некоторых карточках заголовок содержит эквивалентную или неполную
-        # запись дозировки. Если количество упаковки совпадает и есть хотя бы
-        # частичное пересечение компонент дозировки — пропускаем с предупреждением.
-        if not dosage_ok and qty_ok and is_dosage_compatible(normalized_expected_dosage, found_dosage):
-            dosage_warning = (
-                f"Дозировка отличается: ожидалось '{normalized_expected_dosage}', "
-                f"на сайте '{found_dosage}'"
-            )
-            dosage_ok = True
+        if expected_qty is not None:
+            if found_qty != expected_qty:
+                return False, 0.0, found_qty, found_dosage, ""
+            criteria_scores.append(1.0)
 
-        # На некоторых сайтах дозировка отсутствует в заголовке карточки.
-        # В таком случае принимаем вариант, если количество совпало.
-        if not dosage_ok and found_dosage is None and qty_ok:
-            dosage_ok = True
-        return qty_ok and dosage_ok, found_qty, found_dosage
+        if normalized_expected_dosage is not None:
+            if found_dosage == normalized_expected_dosage:
+                dosage_score = 1.0
+            elif is_dosage_compatible(normalized_expected_dosage, found_dosage):
+                dosage_score = 0.7
+                notes.append(
+                    f"Дозировка отличается: ожидалось '{normalized_expected_dosage}', на сайте '{found_dosage}'"
+                )
+            elif found_dosage is None:
+                dosage_score = 0.4
+                notes.append("В заголовке на сайте не указана дозировка")
+            else:
+                dosage_score = 0.0
+            criteria_scores.append(dosage_score)
 
-    def build_item(title: str, found_qty: Optional[int], found_dosage: Optional[str]) -> Dict:
-        price, message = build_price_and_message()
+        if not criteria_scores:
+            score = 1.0
+        else:
+            score = sum(criteria_scores) / len(criteria_scores)
+
+        if score <= 0:
+            return False, 0.0, found_qty, found_dosage, ""
+
+        percent = round(score * 100)
+        notes.append(f"Совпадение: {percent}%")
+        return True, score, found_qty, found_dosage, " | ".join(notes)
+
+    def build_item(title: str, found_qty: Optional[int], found_dosage: Optional[str], extra_message: str) -> Dict:
+        price, message = build_price_and_message(extra_message=extra_message)
         return {
             "input_name": query_name,
             "title": title,
@@ -995,10 +1025,21 @@ def parse_product_page_one_item(
             "message": message,
         }
 
-    title = read_product_title()
-    ok, found_qty, found_dosage = title_matches_expected(title)
-    if ok:
-        return True, build_item(title, found_qty, found_dosage)
+    best_score = -1.0
+    best_item: Optional[Dict] = None
+
+    def consider_current_page() -> None:
+        nonlocal best_score, best_item
+        title = read_product_title()
+        ok, score, found_qty, found_dosage, note = evaluate_title_match(title)
+        if not ok:
+            return
+
+        if score > best_score:
+            best_score = score
+            best_item = build_item(title, found_qty, found_dosage, note)
+
+    consider_current_page()
 
     visited_hrefs = {_normalized_product_url(driver.current_url)}
     buttons = driver.find_elements(By.CSS_SELECTOR, ".ProductVariants .variantButton")
@@ -1017,7 +1058,7 @@ def parse_product_page_one_item(
                 continue
 
             target = href_els[0] if href_els else btn
-            old_title = title
+            old_title = read_product_title()
             old_url = _normalized_product_url(driver.current_url)
 
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target)
@@ -1032,17 +1073,17 @@ def parse_product_page_one_item(
                     break
                 time.sleep(0.2)
 
-            title = read_product_title()
-            ok, found_qty, found_dosage = title_matches_expected(title)
             if href_norm:
                 visited_hrefs.add(href_norm)
             visited_hrefs.add(_normalized_product_url(driver.current_url))
 
-            if ok:
-                return True, build_item(title, found_qty, found_dosage)
+            consider_current_page()
 
         except Exception:
             continue
+
+    if best_item is not None:
+        return True, best_item
 
     not_found_message = "Нет подходящего варианта"
     if warning_message:
