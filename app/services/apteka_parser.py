@@ -964,6 +964,8 @@ def parse_product_page_one_item(
 
         return None
 
+    min_match_score = 0.7
+
     def evaluate_title_match(title: str) -> Tuple[bool, float, Optional[int], Optional[str], str]:
         if not title or "набор" in title.lower():
             return False, 0.0, None, None, ""
@@ -1005,7 +1007,7 @@ def parse_product_page_one_item(
         else:
             score = sum(criteria_scores) / len(criteria_scores)
 
-        if score <= 0:
+        if score < min_match_score:
             return False, 0.0, found_qty, found_dosage, ""
 
         percent = round(score * 100)
