@@ -114,36 +114,15 @@ def get_first_card_title(driver) -> str:
         return ""
 
 
-def has_result(driver) -> bool:
-    """Проверка сайта на загрузку данных"""
-    if is_empty_results_page(driver):
-        return True
-
-    if is_product_page(driver):
-        title = driver.find_elements(By.CSS_SELECTOR, "h1.ViewProductPage__title")
-        return bool(title and title[0].text.strip())
-
-    cards = driver.find_elements(By.CSS_SELECTOR, ".catalog-card.card-flex")
-    if not cards:
-        return False
-    try:
-        price_el = cards[0].find_elements(By.CSS_SELECTOR, "span.moneyprice__content")
-        if price_el and price_el[0].text.strip():
-            return True
-    
-    except StaleElementReferenceException:
-        return False
-
-    return False
-
 # ---------------------------
 # UX helpers
 # ---------------------------
 
 def backoff_sleep(attempt) -> None:
     """Задает сон в случайном промежутке. Больше с каждой попыткой"""
-    base = min(8, 1.5 * (2 ** (attempt - 1)))
-    time.sleep(base + random.uniform(0.2, 0.8))
+    base = min(4, 1.5 * (2 ** (attempt - 1)))
+    sleep_for = min(4, base + random.uniform(0.2, 0.8))
+    time.sleep(sleep_for)
 
 
 def close_modal_if_any(driver, timeout) -> None:

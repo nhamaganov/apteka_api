@@ -19,66 +19,6 @@ def cut_before_bracket(name: str) -> str:
     """Возвращает часть строки до первой открывающей скобки."""
     return name.split("(", 1)[0].strip()
 
-def load_products_from_xls(path: str) -> list[str]:
-    """Загружает названия товаров из Excel-файла."""
-    df = read_spreadsheet(path)
-
-    header_row = header_col = None
-
-    for r in range(df.shape[0]):
-        for c in range(df.shape[1]):
-            cell = str(df.iat[r, c]).lower()
-            if "наименование товара" in cell:
-                header_row, header_col = r, c
-                break
-        if header_row is not None:
-            break
-
-    if header_row is None:
-        raise ValueError("Не найден столбец 'Наименование товара'")
-
-    products = (
-        df.iloc[header_row + 1 :, header_col]
-        .dropna()
-        .astype(str)
-        # .map(cut_before_bracket)
-        .drop_duplicates()
-        .tolist()
-    )
-
-    return products
-
-def build_title_quantity_dict(items: list[str]):
-    """Строит словарь соответствий названий и извлечённых количеств."""
-    result = defaultdict(list)
-
-    for text in items:
-        # Название
-        title = text.split("(", 1)[0].strip()
-
-        # Ищем количество
-        match = re.search(r'N\s*([\d+]+)', text, flags=re.IGNORECASE)
-
-        if match:
-            parts = match.group(1).split("+")
-            quantity = sum(int(p) for p in parts)
-        else:
-            quantity = None
-
-        result[title].append(quantity)
-
-    return dict(result)
-
-
-def extract_quantity(text: str) -> int | None:
-    """
-    Извлекает количество в штуках из строки.
-    Возвращает число или None, если не найдено.
-    """
-    match = re.search(r'(\d+)\s*шт\.?', text, re.IGNORECASE)
-    return int(match.group(1)) if match else None
-
-
 
 def normalize(s: str) -> str:
     """Нормализует строку для нестрогого сравнения."""
