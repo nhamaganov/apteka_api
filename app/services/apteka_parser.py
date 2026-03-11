@@ -18,7 +18,13 @@ from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, WebDriverException
 
 from app.core.settings import PARSE_VARIANT_SETTLE_DELAY
-from app.utils.match import is_name_match, normalize
+from app.utils.match import (
+    is_name_match,
+    normalize,
+    extract_query_manufacturer,
+    manufacturer_match_details,
+)
+
 
 
 Outcome = Literal["matched", "not_found", "failed"]
@@ -260,6 +266,17 @@ def _has_unavailable_offer(driver) -> bool:
         except Exception:
             continue
     return False
+
+
+def _get_product_brand(driver) -> str:
+    """Возвращает производителя из карточки товара (span[itemprop='brand'])."""
+    try:
+        brand_els = driver.find_elements(By.CSS_SELECTOR, "span[itemprop='brand']")
+        if not brand_els:
+            return ""
+        return (brand_els[0].text or "").strip()
+    except Exception:
+        return ""
 
 
 def _is_within_unavailable_offer(el) -> bool:
@@ -894,9 +911,11 @@ def select_variant_qty(
 def parse_product_page_one_item(
     driver,
     query_name: str,
+    query_raw: str,
     expected_qty: Optional[int],
     expected_dosage: Optional[str],
     qty_is_sum: bool,
+    query_manufacturer: str = "",
     timeout: int = 6,
     job_id: str | None = None,
 ) -> Tuple[bool, Dict]:
@@ -904,7 +923,11 @@ def parse_product_page_one_item(
     Возвращает (ok, item).
     ok=True -> нашли лучший вариант среди доступных на странице.
     """
-    del job_id  # параметр оставлен для совместимости сигнатуры
+    def log_parse(msg: str) -> None:
+        if not job_id:
+            return
+        from app.services.job_runner import job_log
+        job_log(job_id, msg)
 
     normalized_expected_dosage = normalize_dosage(expected_dosage)
     warning_message = "Уточните цену на сайте, возможны неточности" if qty_is_sum else ""
@@ -945,12 +968,34 @@ def parse_product_page_one_item(
 
     min_match_score = 0.7
 
-    def evaluate_title_match(title: str) -> Tuple[bool, float, Optional[int], Optional[str], str]:
+    def evaluate_title_match(title: str) -> Tuple[bool, float, Optional[int], Optional[str], Optional[str], str]:
         if not title or "набор" in title.lower():
-            return False, 0.0, None, None, ""
+            return False, 0.0, None, None, None, ""
 
         if not is_name_match(query_name, title):
-            return False, 0.0, None, None, ""
+            return False, 0.0, None, None, None, ""
+
+        found_brand = _get_product_brand(driver)
+        manufacturer_details = manufacturer_match_details(
+            query_raw=query_raw,
+            site_brand=found_brand,
+            query_manufacturer=query_manufacturer,
+        )
+        manufacturer_note = (
+            "Сравнение производителя: "
+            f"вход='{manufacturer_details['query_source']}' "
+            f"(норм='{manufacturer_details['query_normalized']}') | "
+            f"сайт='{manufacturer_details['site_raw']}' "
+            f"(норм='{manufacturer_details['site_normalized']}') | "
+            f"score={manufacturer_details['score']} "
+            f"threshold={manufacturer_details['threshold']} "
+            f"mixed_alphabet={manufacturer_details['mixed_alphabet']} "
+            f"matched={manufacturer_details['matched']}"
+        )
+
+        log_parse(manufacturer_note)
+        if not manufacturer_details["matched"]:
+            return False, 0.0, None, None, found_brand, manufacturer_note
 
         found_qty = extract_pack_qty_from_title(title)
         if found_qty is None:
@@ -963,7 +1008,7 @@ def parse_product_page_one_item(
 
         if expected_qty is not None:
             if found_qty != expected_qty:
-                return False, 0.0, found_qty, found_dosage, ""
+                return False, 0.0, found_qty, found_dosage, found_brand, ""
             criteria_scores.append(1.0)
 
         if normalized_expected_dosage is not None:
@@ -987,17 +1032,26 @@ def parse_product_page_one_item(
             score = sum(criteria_scores) / len(criteria_scores)
 
         if score < min_match_score:
-            return False, 0.0, found_qty, found_dosage, ""
+            return False, 0.0, found_qty, found_dosage, found_brand, ""
 
         percent = round(score * 100)
         notes.append(f"Совпадение: {percent}%")
-        return True, score, found_qty, found_dosage, " | ".join(notes)
+        notes.append(manufacturer_note)
+        return True, score, found_qty, found_dosage, found_brand, " | ".join(notes)
 
-    def build_item(title: str, found_qty: Optional[int], found_dosage: Optional[str], extra_message: str) -> Dict:
+    def build_item(
+        title: str,
+        found_qty: Optional[int],
+        found_dosage: Optional[str],
+        found_brand: Optional[str],
+        extra_message: str,
+    ) -> Dict:
         price, message = build_price_and_message(extra_message=extra_message)
         return {
             "input_name": query_name,
+            "input_manufacturer": query_manufacturer or extract_query_manufacturer(query_raw),
             "title": title,
+            "found_manufacturer": found_brand or "",
             "price": price,
             "input_qty": expected_qty,
             "input_dosage": normalized_expected_dosage,
@@ -1012,13 +1066,13 @@ def parse_product_page_one_item(
     def consider_current_page() -> None:
         nonlocal best_score, best_item
         title = read_product_title()
-        ok, score, found_qty, found_dosage, note = evaluate_title_match(title)
+        ok, score, found_qty, found_dosage, found_brand, note = evaluate_title_match(title)
         if not ok:
             return
 
         if score > best_score:
             best_score = score
-            best_item = build_item(title, found_qty, found_dosage, note)
+            best_item = build_item(title, found_qty, found_dosage, found_brand, note)
 
     consider_current_page()
 
@@ -1116,10 +1170,12 @@ def _collect_matching_card_links(driver, query_name: str) -> List[Dict[str, str]
 def parse_cards(
     driver,
     query_name: str,
+    query_raw: str,
     expected_qty: Optional[int],
     expected_dosage: Optional[str],
     qty_is_sum: bool,
     timeout: int,
+    query_manufacturer: str = "",
     job_id: Optional[str] = None,
 ) -> List[Dict]:
     """
@@ -1151,6 +1207,8 @@ def parse_cards(
                 ok, item = parse_product_page_one_item(
                     driver,
                     query_name=query_name,
+                    query_raw=query_raw,
+                    query_manufacturer=query_manufacturer,
                     expected_qty=expected_qty,
                     expected_dosage=expected_dosage,
                     qty_is_sum=qty_is_sum,
@@ -1190,6 +1248,7 @@ def parse_one_query(
     expected_dosage: Optional[str] = None,
     qty_is_sum: bool = False,
     raw_input: Optional[str] = None,
+    query_manufacturer: str = "",
     job_id: Optional[str] = None,
 ) -> Tuple[Outcome, List[Dict]]:
     """Парсит один запрос и возвращает результат с найденными позициями."""
@@ -1217,7 +1276,7 @@ def parse_one_query(
             page_type = "search"
 
         log_parse(
-            f"PARSE start: query={query_name!r} raw={raw_input!r} expected_qty={expected_qty!r} "
+            f"PARSE start: query={query_name!r} raw={raw_input!r} query_manufacturer={query_manufacturer!r} expected_qty={expected_qty!r} "
             f"expected_dosage={expected_dosage!r} "
             f"qty_is_sum={qty_is_sum!r} url={driver.current_url!r} page={page_type}"
         )
@@ -1247,6 +1306,8 @@ def parse_one_query(
             ok, item = parse_product_page_one_item(
                 driver,
                 query_name=query_name,
+                query_raw=raw_input or query_name,
+                query_manufacturer=query_manufacturer,
                 expected_qty=expected_qty,
                 expected_dosage=expected_dosage,
                 qty_is_sum=qty_is_sum,
@@ -1276,6 +1337,8 @@ def parse_one_query(
         items = parse_cards(
             driver,
             query_name=query_name,
+            query_raw=raw_input or query_name,
+            query_manufacturer=query_manufacturer,
             expected_qty=expected_qty,
             expected_dosage=expected_dosage,
             qty_is_sum=qty_is_sum,

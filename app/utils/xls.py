@@ -75,14 +75,21 @@ def extract_queries_from_excel(path: str) -> list[dict]:
             continue
         seen.add(key)
 
+        manufacturer = ""
+        idx = raw.rfind(")")
+        if idx != -1:
+            manufacturer = raw[idx + 1:].strip()
 
         queries.append({
             "name": name,
             "qty": qty,
             "dosage": dosage,
+            "manufacturer": manufacturer,
             "qty_is_sum": qty_is_sum,
+            "raw": raw,
             "row": raw, # потом можно убрать, для лога!!! 
         })
+
 
     return queries
 
