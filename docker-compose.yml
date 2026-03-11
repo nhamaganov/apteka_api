@@ -9,7 +9,7 @@ services:
       PARSE_TIMEOUT: 10
       PARSE_MAX_RETRIES: 10
       PARSE_PAUSE: 3
-      PARSE_VARIANT_SETTLE_DELAY: 4.0
+      PARSE_VARIANT_SETTLE_DELAY: 3.0
     volumes:
       - job_store_data:/app/job_store
     restart: unless-stopped

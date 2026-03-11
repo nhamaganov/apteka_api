@@ -20,4 +20,4 @@ def get_float(name: str, default: float) -> float:
 PARSE_TIMEOUT = get_int("PARSE_TIMEOUT", 10)
 PARSE_MAX_RETRIES = get_int("PARSE_MAX_RETRIES", 10)
 PARSE_PAUSE = get_float("PARSE_PAUSE", 3)
-PARSE_VARIANT_SETTLE_DELAY = get_float("PARSE_VARIANT_SETTLE_DELAY", 4.0)
+PARSE_VARIANT_SETTLE_DELAY = get_float("PARSE_VARIANT_SETTLE_DELAY", 3.0)
