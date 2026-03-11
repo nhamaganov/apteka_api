@@ -269,12 +269,31 @@ def _has_unavailable_offer(driver) -> bool:
 
 
 def _get_product_brand(driver) -> str:
-    """Возвращает производителя из карточки товара (span[itemprop='brand'])."""
+    """Возвращает производителя из карточки товара.
+
+    Основной источник: список атрибутов товара (`.ProductAttributesList`) по полю
+    с заголовком "Производитель".
+    Fallback для старой верстки: `span[itemprop='brand']`.
+    """
     try:
+        rows = driver.find_elements(By.CSS_SELECTOR, ".ProductAttributesList li dl")
+        for row in rows:
+            try:
+                dt = row.find_element(By.CSS_SELECTOR, "dt")
+                if (dt.text or "").strip().lower() != "производитель":
+                    continue
+
+                dd = row.find_element(By.CSS_SELECTOR, "dd")
+                brand = (dd.text or "").strip()
+                if brand:
+                    return brand
+            except Exception:
+                continue
+
         brand_els = driver.find_elements(By.CSS_SELECTOR, "span[itemprop='brand']")
-        if not brand_els:
-            return ""
-        return (brand_els[0].text or "").strip()
+        if brand_els:
+            return (brand_els[0].text or "").strip()
+        return ""
     except Exception:
         return ""
 
