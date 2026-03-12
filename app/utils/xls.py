@@ -310,7 +310,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         if not query_name:
             continue
 
-        query_qty, _ = extract_qty_from_xls_row(raw_text)
+        query_qty, query_qty_is_sum = extract_qty_from_xls_row(raw_text)
         query_dosage = _normalize_dosage(extract_dosage_from_xls_row(raw_text))
         candidates = by_input_name.get(_key(query_name), [])
         if not candidates:
@@ -393,14 +393,16 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         manufacturer_score = int(manufacturer_score_match.group(1)) if manufacturer_score_match else None
 
         message_text = str(item.get("message", ""))
-        dosage_no_data = "совпадение дозировки: нет данных" in message_text.lower()
+        message_lower = message_text.lower()
+        dosage_no_data = "совпадение дозировки: нет данных" in message_lower
+        qty_sum_warning = query_qty_is_sum or ("уточните цену на сайте, возможны неточности" in message_lower)
 
         expected_dosage = _normalize_dosage(item.get("input_dosage"))
         found_dosage = _normalize_dosage(item.get("found_dosage"))
         dosage_exact = dosage_no_data or expected_dosage is None or expected_dosage == found_dosage
         manufacturer_exact = manufacturer_score is None or manufacturer_score >= 65
 
-        if not (dosage_exact and manufacturer_exact):
+        if qty_sum_warning or not (dosage_exact and manufacturer_exact):
             warning_rows.add(r)
 
     wb = Workbook()
@@ -438,11 +440,6 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
     parsed_price_letter = get_column_letter(insert_col + 1)
 
     warning_fill = PatternFill(fill_type="solid", fgColor="FFE599")
-    for row_idx in warning_rows:
-        excel_row = row_idx + 1 + ROW_OFFSET
-        for col_idx in range(insert_col, insert_col + len(main_extra_headers)):
-            ws.cell(row=excel_row, column=col_idx + 1).fill = warning_fill
-
     empty_fill = PatternFill(fill_type="solid", fgColor="F4CCCC")
 
     if base_price_col is not None:
@@ -485,6 +482,11 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         excel_row = row_idx + 1 + ROW_OFFSET
         for col_idx in range(insert_col, insert_col + len(main_extra_headers)):
             ws.cell(row=excel_row, column=col_idx + 1).fill = empty_fill
+
+    for row_idx in warning_rows:
+        excel_row = row_idx + 1 + ROW_OFFSET
+        for col_idx in range(insert_col, insert_col + len(main_extra_headers)):
+            ws.cell(row=excel_row, column=col_idx + 1).fill = warning_fill
 
     source_min_col = 1
     source_max_col = insert_col
