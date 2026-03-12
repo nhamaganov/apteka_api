@@ -73,7 +73,7 @@ def extract_base_name(raw: str) -> str:
     s = re.split(r"[\(\,]", s, maxsplit=1)[0].strip()
 
     # прибираем числа/дозировки/единицы/упаковку
-    s = re.sub(rf"\b\d+(\.\d+)?\s*{UNITS_PATTERN}\b", " ", s)
+    s = re.sub(rf"\b\d+(\.\d+)?\s*{UNITS_PATTERN}(?!\w)", " ", s)
     s = re.sub(r"\bn\s*\d+\b", " ", s)  # n28
     s = re.sub(r"\b\d+(\.\d+)?\b", " ", s)
     s = re.sub(r"[+×x]", " ", s)

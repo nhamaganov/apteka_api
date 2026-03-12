@@ -609,7 +609,7 @@ def normalize_dosage(raw: Optional[str]) -> Optional[str]:
         return depth
 
     potency_units = r"ме|мe|me|ед|le|ле|iu"
-    matches = list(re.finditer(rf"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|{potency_units}|%)\b", s))
+    matches = list(re.finditer(rf"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|{potency_units}|%)(?!\w)", s))
 
     if not matches:
         return None

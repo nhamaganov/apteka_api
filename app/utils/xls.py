@@ -174,7 +174,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
                     depth -= 1
             return depth
 
-        matches = list(re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)\b", text, flags=re.IGNORECASE))
+        matches = list(re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)(?!\w)", text, flags=re.IGNORECASE))
         if not matches:
             return None
 
@@ -399,7 +399,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         found_dosage = _normalize_dosage(item.get("found_dosage"))
         dosage_exact = dosage_no_data or expected_dosage is None or expected_dosage == found_dosage
         manufacturer_exact = manufacturer_score is None or manufacturer_score >= 65
-        
+
         if not (dosage_exact and manufacturer_exact):
             warning_rows.add(r)
 
@@ -699,7 +699,7 @@ def extract_dosage_from_xls_row(text: str) -> Optional[str]:
     potency_units = r"ме|мe|me|ед|le|ле|iu"
     matches = list(
         re.finditer(
-            rf"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|{potency_units}|%)\b",
+            rf"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|{potency_units}|%)(?!\w)",
             normalized_text,
             flags=re.IGNORECASE,
         )
