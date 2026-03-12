@@ -91,6 +91,31 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;");
 }
 
+function renderQueryLine(line) {
+  const idx = line.indexOf("Запрос:");
+  if (idx === -1) {
+    return escapeHtml(line);
+  }
+
+  const prefix = line.slice(0, idx);
+  const payload = line.slice(idx + "Запрос:".length).trim();
+  const parts = payload.split("|").map((part) => part.trim()).filter(Boolean);
+
+  const namePart = parts.find((part) => part.startsWith("Название:")) || "";
+  const qtyPart = parts.find((part) => part.startsWith("Кол-во:")) || "Кол-во: —";
+  const dosagePart = parts.find((part) => part.startsWith("Дозировка:")) || "Дозировка: —";
+
+  const safePrefix = escapeHtml(prefix);
+  const safeName = escapeHtml(namePart.replace(/^Название:\s*/, ""));
+  const safeQty = escapeHtml(qtyPart.replace(/^Кол-во:\s*/, ""));
+  const safeDosage = escapeHtml(dosagePart.replace(/^Дозировка:\s*/, ""));
+
+  return `${safePrefix}<span class="log-line-query">Запрос:</span> ` +
+    `<span class="log-query-name">${safeName}</span> ` +
+    `<span class="log-query-chip">Дозировка: ${safeDosage}</span>` +
+    `<span class="log-query-chip">Кол-во: ${safeQty}</span> `;
+}
+
 function renderLog(payload) {
   const el = document.getElementById("log");
   if (!el) return;
@@ -100,6 +125,10 @@ function renderLog(payload) {
     line.includes("Запрос:") || line.includes("Найдено:")
   ));
   const html = lines.map((line) => {
+    if (line.includes("Запрос:")) {
+      return renderQueryLine(line);
+    }
+    
     const safeLine = escapeHtml(line);
     if (line.includes("Найдено: Не найдено")) {
       return `<span class="log-line-not-found">${safeLine}</span>`;

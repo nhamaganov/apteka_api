@@ -68,19 +68,28 @@ def extract_queries_from_excel(path: str) -> list[dict]:
             continue
         
         qty, qty_is_sum = extract_qty_from_xls_row(raw)
+        dosage = extract_dosage_from_xls_row(raw)
 
-        key = (name.lower(), qty)
+        key = (name.lower(), qty, dosage)
         if key in seen:
             continue
         seen.add(key)
 
+        manufacturer = ""
+        idx = raw.rfind(")")
+        if idx != -1:
+            manufacturer = raw[idx + 1:].strip()
 
         queries.append({
             "name": name,
             "qty": qty,
+            "dosage": dosage,
+            "manufacturer": manufacturer,
             "qty_is_sum": qty_is_sum,
+            "raw": raw,
             "row": raw, # потом можно убрать, для лога!!! 
         })
+
 
     return queries
 
@@ -135,6 +144,54 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
 
     def _key(name: str) -> str:
         return (name or "").strip().lower().replace("ё", "е")
+
+    def _normalize_dosage(value: object) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip().lower().replace("ё", "е")
+        if not text:
+            return None
+
+        def _format_number(number: float) -> str:
+            return (f"{number:.6f}").rstrip("0").rstrip(".")
+
+        def _normalize_part(number: float, unit: str) -> tuple[float, str]:
+            unit = unit.lower()
+            if unit == "мкг":
+                return number / 1000, "мг"
+            if unit == "г":
+                return number * 1000, "мг"
+            return number, unit
+
+        def _parentheses_depth(raw_text: str, idx: int) -> int:
+            depth = 0
+            for pos, ch in enumerate(raw_text):
+                if pos >= idx:
+                    break
+                if ch == "(":
+                    depth += 1
+                elif ch == ")" and depth > 0:
+                    depth -= 1
+            return depth
+
+        matches = list(re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)(?!\w)", text, flags=re.IGNORECASE))
+        if not matches:
+            return None
+
+        min_depth = min(_parentheses_depth(text, m.start()) for m in matches)
+        selected_matches = [m for m in matches if _parentheses_depth(text, m.start()) == min_depth]
+
+        parsed_parts: list[tuple[float, str]] = []
+        for m in selected_matches:
+            raw_number = float(m.group(1))
+            number, unit = _normalize_part(raw_number, m.group(2))
+            parsed_parts.append((number, unit))
+
+        if not parsed_parts:
+            return None
+        parsed_parts.sort(key=lambda part: (part[1], part[0]))
+        parts = [f"{_format_number(number)} {unit}" for number, unit in parsed_parts]
+        return " + ".join(parts)
 
     def _to_number(value: object) -> Optional[float]:
         if value is None:
@@ -222,6 +279,8 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
 
     apteka_rows: dict[int, list[object]] = {}
     not_found_rows: set[int] = set()
+    warning_rows: set[int] = set()
+    no_info_rows: set[int] = set()
 
     base_price_col: Optional[int] = None
     purchase_price_col: Optional[int] = None
@@ -251,32 +310,47 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         if not query_name:
             continue
 
-        query_qty, _ = extract_qty_from_xls_row(raw_text)
+        query_qty, query_qty_is_sum = extract_qty_from_xls_row(raw_text)
+        query_dosage = _normalize_dosage(extract_dosage_from_xls_row(raw_text))
         candidates = by_input_name.get(_key(query_name), [])
         if not candidates:
-            not_found_rows.add(r)
+            no_info_rows.add(r)
             continue
 
-        item = None
+        # 1) Сначала фильтруем кандидатов по количеству.
+        qty_matched: list[dict] = []
         if query_qty is not None:
-            for candidate in candidates:
-                if candidate.get("input_qty") == query_qty:
-                    item = candidate
-                    break
-            if item is None:
+            qty_matched = [c for c in candidates if c.get("input_qty") == query_qty]
+            if not qty_matched:
                 # Если в строке есть явное количество, не подставляем запись
                 # с другим количеством, чтобы не перепутать соседние позиции.
-                not_found_rows.add(r)
+                no_info_rows.add(r)
                 continue
         else:
-            for candidate in candidates:
-                if candidate.get("input_qty") is None:
-                    item = candidate
-                    break
-            if item is None:
-                item = candidates[0]
+            qty_matched = [c for c in candidates if c.get("input_qty") is None]
+            if not qty_matched:
+                qty_matched = candidates
+
+        # 2) Затем фильтруем по дозировке, если она задана в строке.
+        def _candidate_dosage(candidate: dict) -> Optional[str]:
+            return _normalize_dosage(candidate.get("input_dosage"))
+
+        item = None
+        if query_dosage is not None:
+            dosage_matched = [c for c in qty_matched if _candidate_dosage(c) == query_dosage]
+            if not dosage_matched:
+                # Если в исходной строке есть дозировка, не подставляем
+                # запись с другой дозировкой.
+                no_info_rows.add(r)
+                continue
+            item = dosage_matched[0]
+        else:
+            no_dosage = [c for c in qty_matched if _candidate_dosage(c) is None]
+            item = no_dosage[0] if no_dosage else qty_matched[0]
 
         parsed_price = item.get("price", "")
+        if _is_empty(parsed_price):
+            no_info_rows.add(r)
 
         base_markup_value: object = ""
         purchase_markup_value: object = ""
@@ -315,9 +389,21 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             item.get("message", ""),
         ]
 
-        message = str(item.get("message", "")).strip().lower()
-        if message.startswith("не найден"):
-            not_found_rows.add(r)
+        manufacturer_score_match = re.search(r"\bscore\s*=\s*(\d+)\b", str(item.get("message", "")), flags=re.IGNORECASE)
+        manufacturer_score = int(manufacturer_score_match.group(1)) if manufacturer_score_match else None
+
+        message_text = str(item.get("message", ""))
+        message_lower = message_text.lower()
+        dosage_no_data = "совпадение дозировки: нет данных" in message_lower
+        qty_sum_warning = query_qty_is_sum or ("уточните цену на сайте, возможны неточности" in message_lower)
+
+        expected_dosage = _normalize_dosage(item.get("input_dosage"))
+        found_dosage = _normalize_dosage(item.get("found_dosage"))
+        dosage_exact = dosage_no_data or expected_dosage is None or expected_dosage == found_dosage
+        manufacturer_exact = manufacturer_score is None or manufacturer_score >= 65
+
+        if qty_sum_warning or not (dosage_exact and manufacturer_exact):
+            warning_rows.add(r)
 
     wb = Workbook()
     ws = wb.active
@@ -353,11 +439,8 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
 
     parsed_price_letter = get_column_letter(insert_col + 1)
 
-    not_found_fill = PatternFill(fill_type="solid", fgColor="F4CCCC")
-    for row_idx in not_found_rows:
-        excel_row = row_idx + 1 + ROW_OFFSET
-        for col_idx in range(insert_col, insert_col + len(main_extra_headers)):
-            ws.cell(row=excel_row, column=col_idx + 1).fill = not_found_fill
+    warning_fill = PatternFill(fill_type="solid", fgColor="FFE599")
+    empty_fill = PatternFill(fill_type="solid", fgColor="F4CCCC")
 
     if base_price_col is not None:
         base_price_letter = get_column_letter(base_price_col + 1)
@@ -394,6 +477,16 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
                 f"0,{parsed_price_letter}{excel_row}/{site_price_letter}{excel_row}-1)"
             )
             site_markup_cell.number_format = '0.00%'
+
+    for row_idx in no_info_rows:
+        excel_row = row_idx + 1 + ROW_OFFSET
+        for col_idx in range(insert_col, insert_col + len(main_extra_headers)):
+            ws.cell(row=excel_row, column=col_idx + 1).fill = empty_fill
+
+    for row_idx in warning_rows:
+        excel_row = row_idx + 1 + ROW_OFFSET
+        for col_idx in range(insert_col, insert_col + len(main_extra_headers)):
+            ws.cell(row=excel_row, column=col_idx + 1).fill = warning_fill
 
     source_min_col = 1
     source_max_col = insert_col
@@ -557,7 +650,13 @@ def extract_qty_from_xls_row(text: str) -> Tuple[Optional[int], bool]:
     if not text:
         return None, False
 
-    m = re.search(r"\bN\s*([\d+]+)\b", text, flags=re.IGNORECASE)
+    m = re.search(r"(?:\bN\s*|№\s*)([\d+]+)\b", text, flags=re.IGNORECASE)
+    if not m:
+        m = re.search(
+            r"\b(\d+)\s*(?:шт\.?|амп\.?|ампул(?:а|ы)?|шпр\.?|шприц(?:-?тюб)?)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
     if not m:
         return None, False
 
@@ -568,3 +667,59 @@ def extract_qty_from_xls_row(text: str) -> Tuple[Optional[int], bool]:
             return None, True
         return sum(int(p) for p in parts), True
     return int(raw), False
+
+
+def extract_dosage_from_xls_row(text: str) -> Optional[str]:
+    """Возвращает дозировку из текста в нормализованном виде (например, `5 мг + 2 мг`)."""
+    if not text:
+        return None
+
+    normalized_text = str(text).lower().replace("ё", "е")
+    normalized_text = re.sub(r"(?<=\d)\s*[\.,]\s*(?=\d)", ".", normalized_text)
+    def _normalize_part(number: float, unit: str) -> tuple[float, str]:
+        unit = unit.lower()
+        if unit == "мкг":
+            return number / 1000, "мг"
+        if unit == "г":
+            return number * 1000, "мг"
+        return number, unit
+
+    def _format_number(number: float) -> str:
+        return (f"{number:.6f}").rstrip("0").rstrip(".")
+
+    def _parentheses_depth(raw_text: str, idx: int) -> int:
+        depth = 0
+        for pos, ch in enumerate(raw_text):
+            if pos >= idx:
+                break
+            if ch == "(":
+                depth += 1
+            elif ch == ")" and depth > 0:
+                depth -= 1
+        return depth
+
+    potency_units = r"ме|мe|me|ед|le|ле|iu"
+    matches = list(
+        re.finditer(
+            rf"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|{potency_units}|%)(?!\w)",
+            normalized_text,
+            flags=re.IGNORECASE,
+        )
+    )
+    if not matches:
+        return None
+
+    min_depth = min(_parentheses_depth(normalized_text, m.start()) for m in matches)
+    selected_matches = [m for m in matches if _parentheses_depth(normalized_text, m.start()) == min_depth]
+
+    parsed_parts: list[tuple[float, str]] = []
+    for m in selected_matches:
+        raw_number = float(m.group(1))
+        number, unit = _normalize_part(raw_number, m.group(2))
+        if unit in {"мe", "me", "ед", "le", "ле", "iu"}:
+            unit = "ме"
+        parsed_parts.append((number, unit))
+    parsed_parts = sorted(set(parsed_parts), key=lambda part: (part[1], part[0]))
+    parts = [f"{_format_number(number)} {unit}" for number, unit in parsed_parts]
+
+    return " + ".join(parts)

@@ -396,6 +396,26 @@ button.btn-sm:disabled:hover {
   font-weight: 700;
 }
 
+.log-line-query {
+  color: #93c5fd;
+  font-weight: 700;
+}
+
+.log-query-name {
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.log-query-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(148, 163, 184, 0.12);
+  color: #dbeafe;
+}
+
 /* nice scrollbar (webkit) */
 .logbox::-webkit-scrollbar { width: 10px; }
 .logbox::-webkit-scrollbar-thumb {

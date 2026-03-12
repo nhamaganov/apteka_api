@@ -2,6 +2,7 @@ import asyncio
 import time
 from datetime import datetime
 from typing import Dict, List
+from zoneinfo import ZoneInfo
 
 from app.core.settings import PARSE_MAX_RETRIES, PARSE_PAUSE, PARSE_TIMEOUT
 from app.core.storage import log_path, result_file_path, status_path, result_path, queries_path, read_json, write_json, upload_path
@@ -62,13 +63,17 @@ def _process_job_sync(job_id: str) -> None:
             if isinstance(q, str):
                 q_name = q
                 q_qty = None
+                q_dosage = None
                 q_sum = False
                 raw = q
+                q_manufacturer = ""
             else:
                 q_name = (q.get("name")or "").strip()
                 q_qty = q.get("qty", None)
+                q_dosage = q.get("dosage", None)
                 q_sum = bool(q.get("qty_is_sum", False))
-                raw = q.get("raw") or q_name
+                raw = q.get("raw") or q.get("row") or q_name
+                q_manufacturer = (q.get("manufacturer") or "").strip()
 
             if not q_name:
                 status["progress"]["processed"] += 1
@@ -76,8 +81,11 @@ def _process_job_sync(job_id: str) -> None:
                 write_json(status_path(job_id), status)
                 continue
 
-            query_line = f"{q_name} - {q_qty}" if q_qty is not None else q_name
-            job_log(job_id, f"Запрос: {query_line}")
+            query_parts = [f"Название: {q_name}"]
+            query_parts.append(f"Кол-во: {q_qty}" if q_qty is not None else "Кол-во: —")
+            query_parts.append(f"Дозировка: {q_dosage}" if q_dosage else "Дозировка: —")
+            query_parts.append(f"Производитель: {q_manufacturer}" if q_manufacturer else "Производитель: —")
+            job_log(job_id, f"Запрос: {' | '.join(query_parts)}")
 
             outcome, items = parse_one_query(
                 driver,
@@ -85,9 +93,11 @@ def _process_job_sync(job_id: str) -> None:
                 PARSE_TIMEOUT,
                 PARSE_MAX_RETRIES,
                 expected_qty=q_qty,
+                expected_dosage=q_dosage,
                 qty_is_sum=q_sum,
                 raw_input=raw,
-                job_id=None,
+                query_manufacturer=q_manufacturer,
+                job_id=job_id,
             )
 
             if cancel_requested():
@@ -170,7 +180,7 @@ def job_log(job_id: str, msg: str) -> None:
     """Добавляет строку в лог задачи."""
     p = log_path(job_id)
     p.parent.mkdir(parents=True, exist_ok=True)
-    line = f"{datetime.now().strftime('%d-%m %H:%M')} | {msg}\n"
+    line = f"{datetime.now(ZoneInfo('Asia/Irkutsk')).strftime('%d-%m %H:%M')} | {msg}\n"
     with p.open("a", encoding="utf-8") as f:
         f.write(line)
 
