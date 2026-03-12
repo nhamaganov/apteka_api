@@ -392,11 +392,14 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         manufacturer_score_match = re.search(r"\bscore\s*=\s*(\d+)\b", str(item.get("message", "")), flags=re.IGNORECASE)
         manufacturer_score = int(manufacturer_score_match.group(1)) if manufacturer_score_match else None
 
+        message_text = str(item.get("message", ""))
+        dosage_no_data = "совпадение дозировки: нет данных" in message_text.lower()
+
         expected_dosage = _normalize_dosage(item.get("input_dosage"))
         found_dosage = _normalize_dosage(item.get("found_dosage"))
-        dosage_exact = expected_dosage is None or expected_dosage == found_dosage
-        manufacturer_exact = manufacturer_score is None or manufacturer_score == 100
-
+        dosage_exact = dosage_no_data or expected_dosage is None or expected_dosage == found_dosage
+        manufacturer_exact = manufacturer_score is None or manufacturer_score >= 65
+        
         if not (dosage_exact and manufacturer_exact):
             warning_rows.add(r)
 
