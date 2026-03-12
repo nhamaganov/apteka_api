@@ -298,6 +298,33 @@ def _get_product_brand(driver) -> str:
         return ""
 
 
+def _get_product_dosage(driver) -> Optional[str]:
+    """Возвращает дозировку из карточки товара.
+
+    Основной источник: список атрибутов товара (`.ProductAttributesList`) по полю
+    с заголовком "Дозировка".
+    """
+    try:
+        rows = driver.find_elements(By.CSS_SELECTOR, ".ProductAttributesList li dl")
+        for row in rows:
+            try:
+                dt = row.find_element(By.CSS_SELECTOR, "dt")
+                if (dt.text or "").strip().lower() != "дозировка":
+                    continue
+
+                dd = row.find_element(By.CSS_SELECTOR, "dd")
+                dosage_raw = (dd.text or "").strip()
+                if not dosage_raw:
+                    return None
+                return normalize_dosage(dosage_raw)
+            except Exception:
+                continue
+
+        return None
+    except Exception:
+        return None
+
+
 def _is_within_unavailable_offer(el) -> bool:
     """Проверяет, что элемент находится внутри блока 'Нет в наличии'."""
     try:
@@ -1000,7 +1027,7 @@ def parse_product_page_one_item(
             site_brand=found_brand,
             query_manufacturer=query_manufacturer,
         )
-        manufacturer_note = (
+        manufacturer_log_note = (
             "Сравнение производителя: "
             f"вход='{manufacturer_details['query_source']}' "
             f"(норм='{manufacturer_details['query_normalized']}') | "
@@ -1011,8 +1038,9 @@ def parse_product_page_one_item(
             f"mixed_alphabet={manufacturer_details['mixed_alphabet']} "
             f"matched={manufacturer_details['matched']}"
         )
+        manufacturer_note = f"Производитель score={manufacturer_details['score']}"
 
-        log_parse(manufacturer_note)
+        log_parse(manufacturer_log_note)
         if not manufacturer_details["matched"]:
             return False, 0.0, None, None, found_brand, manufacturer_note
 
@@ -1020,7 +1048,9 @@ def parse_product_page_one_item(
         if found_qty is None:
             found_qty = get_current_variant_qty()
 
-        found_dosage = extract_dosage_from_text(title)
+        found_dosage = _get_product_dosage(driver)
+        if found_dosage is None:
+            found_dosage = extract_dosage_from_text(title)
 
         criteria_scores: list[float] = []
         notes: list[str] = []
@@ -1033,16 +1063,17 @@ def parse_product_page_one_item(
         if normalized_expected_dosage is not None:
             if found_dosage == normalized_expected_dosage:
                 dosage_score = 1.0
+                dosage_note = "Совпадение дозировки: да"
             elif is_dosage_compatible(normalized_expected_dosage, found_dosage):
                 dosage_score = 0.7
-                notes.append(
-                    f"Дозировка отличается: ожидалось '{normalized_expected_dosage}', на сайте '{found_dosage}'"
-                )
+                dosage_note = "Совпадение дозировки: частично"
             elif found_dosage is None:
                 dosage_score = 0.4
-                notes.append("В заголовке на сайте не указана дозировка")
+                dosage_note = "Совпадение дозировки: нет данных"
             else:
                 dosage_score = 0.0
+                dosage_note = "Совпадение дозировки: нет"
+            notes.append(dosage_note)
             criteria_scores.append(dosage_score)
 
         if not criteria_scores:
@@ -1053,8 +1084,6 @@ def parse_product_page_one_item(
         if score < min_match_score:
             return False, 0.0, found_qty, found_dosage, found_brand, ""
 
-        percent = round(score * 100)
-        notes.append(f"Совпадение: {percent}%")
         notes.append(manufacturer_note)
         return True, score, found_qty, found_dosage, found_brand, " | ".join(notes)
 
