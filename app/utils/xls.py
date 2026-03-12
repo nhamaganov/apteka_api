@@ -478,15 +478,17 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             )
             site_markup_cell.number_format = '0.00%'
 
+    for row_idx in warning_rows:
+        if row_idx in no_info_rows:
+            continue
+        excel_row = row_idx + 1 + ROW_OFFSET
+        for col_idx in range(insert_col, insert_col + len(main_extra_headers)):
+            ws.cell(row=excel_row, column=col_idx + 1).fill = warning_fill
+
     for row_idx in no_info_rows:
         excel_row = row_idx + 1 + ROW_OFFSET
         for col_idx in range(insert_col, insert_col + len(main_extra_headers)):
             ws.cell(row=excel_row, column=col_idx + 1).fill = empty_fill
-
-    for row_idx in warning_rows:
-        excel_row = row_idx + 1 + ROW_OFFSET
-        for col_idx in range(insert_col, insert_col + len(main_extra_headers)):
-            ws.cell(row=excel_row, column=col_idx + 1).fill = warning_fill
 
     source_min_col = 1
     source_max_col = insert_col
