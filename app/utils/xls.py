@@ -70,15 +70,15 @@ def extract_queries_from_excel(path: str) -> list[dict]:
         qty, qty_is_sum = extract_qty_from_xls_row(raw)
         dosage = extract_dosage_from_xls_row(raw)
 
-        key = (name.lower(), qty, dosage)
-        if key in seen:
-            continue
-        seen.add(key)
-
         manufacturer = ""
         idx = raw.rfind(")")
         if idx != -1:
             manufacturer = raw[idx + 1:].strip()
+
+        key = (name.lower(), qty, dosage, manufacturer.lower())
+        if key in seen:
+            continue
+        seen.add(key)
 
         queries.append({
             "name": name,
