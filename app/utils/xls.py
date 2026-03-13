@@ -400,7 +400,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         expected_dosage = _normalize_dosage(item.get("input_dosage"))
         found_dosage = _normalize_dosage(item.get("found_dosage"))
         dosage_exact = dosage_no_data or expected_dosage is None or expected_dosage == found_dosage
-        manufacturer_exact = manufacturer_score is None or manufacturer_score >= 65
+        manufacturer_exact = manufacturer_score is None or manufacturer_score > 60
 
         if qty_sum_warning or not (dosage_exact and manufacturer_exact):
             warning_rows.add(r)
