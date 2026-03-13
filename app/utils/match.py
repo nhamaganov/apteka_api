@@ -1,8 +1,6 @@
 import re
 
-from collections import defaultdict
 from rapidfuzz import fuzz
-from app.utils.xls import read_spreadsheet
 
 
 UNITS_PATTERN = r"(мг|г|гр|мкг|мл|ме|мe|me|ед|ле|le|%|iu)"
@@ -34,11 +32,6 @@ _CYR_TO_LAT = str.maketrans({
 def modifiers(tokens: set[str]) -> set[str]:
     """Возвращает модификаторы, присутствующие в наборе токенов."""
     return tokens & MODIFIERS
-
-
-def cut_before_bracket(name: str) -> str:
-    """Возвращает часть строки до первой открывающей скобки."""
-    return name.split("(", 1)[0].strip()
 
 
 def extract_query_manufacturer(raw: str) -> str:
@@ -189,11 +182,6 @@ def manufacturer_match_details(
         "site_compared": actual_cmp,
         "reason": "ok",
     }
-
-
-def is_manufacturer_match(query_raw: str, site_brand: str, min_score: int = 90) -> bool:
-    details = manufacturer_match_details(query_raw=query_raw, site_brand=site_brand, min_score=min_score)
-    return bool(details["matched"])
 
 
 def is_name_match(xls_name: str, site_title: str,

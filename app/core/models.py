@@ -12,7 +12,7 @@ class JobProgress(BaseModel):
 
 class JobStatus(BaseModel):
     job_id: str
-    status: str # queued | rinning | done | failed
+    status: str # queued | running | done | failed
     progress: JobProgress
     created_at: str
     started_at: Optional[str] = None
