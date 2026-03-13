@@ -93,8 +93,11 @@ def list_jobs(limit: int = 20) -> List[Dict[str, Any]]:
                         data["city"] = ""
 
             created_at_iso = data.get("created_at", "")
-            created_at_dt = datetime.fromisoformat(created_at_iso)
-            data["created_at"] = created_at_dt.strftime("%d-%m-%Y %H:%M:%S")
+            try:
+                created_at_dt = datetime.fromisoformat(created_at_iso)
+                data["created_at"] = created_at_dt.strftime("%d-%m-%Y %H:%M:%S")
+            except (TypeError, ValueError):
+                created_at_dt = datetime.min
             data["_created_at_sort"] = created_at_dt
 
             jobs.append(data)

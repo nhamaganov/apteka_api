@@ -88,7 +88,6 @@ docker compose up --build -d
 - `PARSE_TIMEOUT=10`
 - `PARSE_MAX_RETRIES=10`
 - `PARSE_PAUSE=3`
-- `PARSE_VARIANT_SETTLE_DELAY=4.0`
 
 Для Selenium внутри контейнера:
 - `CHROME_BIN=/usr/bin/chromium`

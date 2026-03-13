@@ -17,7 +17,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, WebDriverException
 
-from app.core.settings import PARSE_VARIANT_SETTLE_DELAY
 from app.utils.match import (
     is_name_match,
     normalize,

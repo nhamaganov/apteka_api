@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     app.state.worker_task.cancel()
     try:
         await app.state.worker_task
-    except Exception:
+    except asyncio.CancelledError:
         pass
 
 

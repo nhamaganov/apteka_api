@@ -1,5 +1,4 @@
 import re
-from copy import copy
 from typing import Optional, Tuple
 import pandas as pd
 from openpyxl import Workbook
@@ -278,7 +277,6 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         df.iat[header_row, insert_col + offset] = name
 
     apteka_rows: dict[int, list[object]] = {}
-    not_found_rows: set[int] = set()
     warning_rows: set[int] = set()
     no_info_rows: set[int] = set()
 
