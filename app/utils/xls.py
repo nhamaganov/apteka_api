@@ -159,7 +159,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             unit = unit.lower()
             if unit == "мкг":
                 return number / 1000, "мг"
-            if unit == "г":
+            if unit in {"г", "гр"}:
                 return number * 1000, "мг"
             return number, unit
 
@@ -174,7 +174,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
                     depth -= 1
             return depth
 
-        matches = list(re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|мл|ме|iu|%)(?!\w)", text, flags=re.IGNORECASE))
+        matches = list(re.finditer(r"\b(\d+(?:[\.,]\d+)?)\s*(мкг|мг|г|гр|мл|ме|iu|%)(?!\w)", text, flags=re.IGNORECASE))
         if not matches:
             return None
 
@@ -682,7 +682,7 @@ def extract_dosage_from_xls_row(text: str) -> Optional[str]:
         unit = unit.lower()
         if unit == "мкг":
             return number / 1000, "мг"
-        if unit == "г":
+        if unit in {"г", "гр"}:
             return number * 1000, "мг"
         return number, unit
 

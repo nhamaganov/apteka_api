@@ -590,7 +590,7 @@ def normalize_dosage(raw: Optional[str]) -> Optional[str]:
         # `30 мкг` и `0.03 мг` считались одинаковой дозировкой.
         if unit == "мкг":
             return value / 1000, "мг"
-        if unit == "г":
+        if unit in {"г", "гр"}:
             return value * 1000, "мг"
         return value, unit
 
@@ -609,7 +609,7 @@ def normalize_dosage(raw: Optional[str]) -> Optional[str]:
         return depth
 
     potency_units = r"ме|мe|me|ед|le|ле|iu"
-    matches = list(re.finditer(rf"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|мл|{potency_units}|%)(?!\w)", s))
+    matches = list(re.finditer(rf"\b(\d+(?:\.\d+)?)\s*(мкг|мг|г|гр|мл|{potency_units}|%)(?!\w)", s))
 
     if not matches:
         return None
@@ -1048,9 +1048,15 @@ def parse_product_page_one_item(
         if found_qty is None:
             found_qty = get_current_variant_qty()
 
-        found_dosage = _get_product_dosage(driver)
-        if found_dosage is None:
+        semax_requested = "семакс" in (query_name or "").lower() or "семакс" in (query_raw or "").lower()
+        if semax_requested:
+            found_dosage = _get_product_dosage(driver)
+            if found_dosage is None:
+                found_dosage = extract_dosage_from_text(title)
+        else:
             found_dosage = extract_dosage_from_text(title)
+            if found_dosage is None:
+                found_dosage = _get_product_dosage(driver)
 
         criteria_scores: list[float] = []
         notes: list[str] = []

@@ -5,7 +5,7 @@ from rapidfuzz import fuzz
 from app.utils.xls import read_spreadsheet
 
 
-UNITS_PATTERN = r"(мг|г|мкг|мл|ме|мe|me|ед|ле|le|%|iu)"
+UNITS_PATTERN = r"(мг|г|гр|мкг|мл|ме|мe|me|ед|ле|le|%|iu)"
 
 MODIFIERS = {"микро", "плюс", "мини", "форте", "экстра", "лонг", "ретард", "квик", "дуо"}
 
