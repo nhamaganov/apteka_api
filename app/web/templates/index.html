@@ -29,6 +29,11 @@
           <option value="Красноярск">Красноярск</option>
           <option value="Улан-Удэ">Улан-Удэ</option>
         </select>
+        <fieldset class="pharmacy-select-group">
+          <legend>Аптеки для парсинга:</legend>
+          <label><input type="checkbox" name="pharmacies" value="apteka_ru" checked> Apteka.ru</label>
+          <label><input type="checkbox" name="pharmacies" value="zdravcity"> Zdravcity</label>
+        </fieldset>
         <button id="startParsingBtn" class="btn primary upload-submit" type="submit" disabled>
           Запустить парсинг
         </button>
@@ -44,6 +49,7 @@
             <th>Название</th>
             <th>Статус</th>
             <th>Город</th>
+            <th>Аптеки</th>
             <th>Прогресс</th>
             <th>Дата запуска</th>
             <th>Действия</th>
@@ -70,7 +76,8 @@
               </td>
 
               <td>{{ j.city or "-" }}</td>
-        
+              <td>{{ (j.pharmacies or ["apteka_ru"])|join(", ") }}</td>
+
               <td>
                 {% if j.progress %}
                   <div>
@@ -131,16 +138,33 @@
     const fileNameLabel = document.getElementById("selectedFileName");
     const startButton = document.getElementById("startParsingBtn");
 
+    const uploadForm = document.querySelector(".upload-form");
+    const pharmacyChecks = Array.from(document.querySelectorAll('input[name="pharmacies"]'));
+
+    function validateUploadForm() {
+      const file = uploadInput.files && uploadInput.files[0];
+      const hasPharmacy = pharmacyChecks.some((el) => el.checked);
+      startButton.disabled = !(file && hasPharmacy);
+    }
+
     uploadInput.addEventListener("change", () => {
       const file = uploadInput.files && uploadInput.files[0];
       if (file) {
         fileNameLabel.textContent = file.name;
         fileNameLabel.classList.add("selected");
-        startButton.disabled = false;
+        validateUploadForm();
       } else {
         fileNameLabel.textContent = "Файл не выбран";
         fileNameLabel.classList.remove("selected");
-        startButton.disabled = true;
+        validateUploadForm();
+      }
+    });
+
+    pharmacyChecks.forEach((el) => el.addEventListener("change", validateUploadForm));
+    uploadForm.addEventListener("submit", (e) => {
+      if (!pharmacyChecks.some((el) => el.checked)) {
+        e.preventDefault();
+        alert("Выберите хотя бы одну аптеку");
       }
     });
   </script>

@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 @router.post("/", response_model=JobStatus)
-async def create_job(request: Request, file: UploadFile = File(...), city: str = Form("Иркутск")):
+async def create_job(request: Request, file: UploadFile = File(...), city: str = Form("Иркутск"), pharmacies: list[str] = Form(["apteka_ru"])):
     """
     Создаёт новую задачу (job) на основе загруженного Excel-файла.
 
@@ -56,7 +56,9 @@ async def create_job(request: Request, file: UploadFile = File(...), city: str =
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse excel: {e}")
     
-    write_json(queries_path(job_id), {"queries": queries, "city": city})
+    selected_pharmacies = [p for p in pharmacies if p in {"apteka_ru", "zdravcity"}] or ["apteka_ru"]
+
+    write_json(queries_path(job_id), {"queries": queries, "city": city, "pharmacies": selected_pharmacies})
 
     display_name = make_display_name(file.filename)
 
@@ -71,6 +73,7 @@ async def create_job(request: Request, file: UploadFile = File(...), city: str =
     data["display_name"] = display_name
     data["filename"] = file.filename
     data["city"] = city
+    data["pharmacies"] = selected_pharmacies
     data["cancelled"] = False
 
     write_json(status_path(job_id), data)

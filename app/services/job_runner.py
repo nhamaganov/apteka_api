@@ -9,7 +9,8 @@ from app.core.storage import log_path, result_file_path, status_path, result_pat
 from app.core.queue import JobQueue
 from app.core.time import now_iso
 from app.utils.xls import build_enriched_xlsx, build_flat_xlsx
-from app.services.apteka_parser import make_driver, recover_to_home, close_modal_if_any, parse_one_query, select_city
+from app.services.apteka_parser import make_driver
+from app.services.pharmacy_engines import get_engine
 
 
 async def process_job(job_id: str) -> None:
@@ -29,7 +30,8 @@ def _process_job_sync(job_id: str) -> None:
     queries_data = read_json(queries_path(job_id))
     queries = queries_data.get("queries", [])
     selected_city = queries_data.get("city", "")
-    total = len(queries)
+    selected_pharmacies = queries_data.get("pharmacies", ["apteka_ru"])
+    total = len(queries) * max(1, len(selected_pharmacies))
 
     status["progress"]["total"] = total
     write_json(status_path(job_id), status)
@@ -51,83 +53,86 @@ def _process_job_sync(job_id: str) -> None:
 
     try:
         driver = make_driver()
-        recover_to_home(driver)
-        close_modal_if_any(driver, timeout=2)
-        select_city(driver, selected_city, timeout=8)
 
-        for q in queries:
-            if cancel_requested():
-                finalize_cancel()
-                return
-            
-            if isinstance(q, str):
-                q_name = q
-                q_qty = None
-                q_dosage = None
-                q_sum = False
-                raw = q
-                q_manufacturer = ""
-            else:
-                q_name = (q.get("name")or "").strip()
-                q_qty = q.get("qty", None)
-                q_dosage = q.get("dosage", None)
-                q_sum = bool(q.get("qty_is_sum", False))
-                raw = q.get("raw") or q.get("row") or q_name
-                q_manufacturer = (q.get("manufacturer") or "").strip()
+        for pharmacy_code in selected_pharmacies:
+            engine = get_engine(pharmacy_code)
+            prep_info = engine.prepare(driver, selected_city, timeout=8, job_id=job_id)
+            prep_city = prep_info.get("selected_city", selected_city)
+            job_log(job_id, f"[{engine.meta.title}] выбран город: {prep_city}")
 
-            if not q_name:
+            for q in queries:
+                if cancel_requested():
+                    finalize_cancel()
+                    return
+
+                if isinstance(q, str):
+                    q_name = q
+                    q_qty = None
+                    q_dosage = None
+                    q_sum = False
+                    raw = q
+                    q_manufacturer = ""
+                else:
+                    q_name = (q.get("name")or "").strip()
+                    q_qty = q.get("qty", None)
+                    q_dosage = q.get("dosage", None)
+                    q_sum = bool(q.get("qty_is_sum", False))
+                    raw = q.get("raw") or q.get("row") or q_name
+                    q_manufacturer = (q.get("manufacturer") or "").strip()
+
+                if not q_name:
+                    status["progress"]["processed"] += 1
+                    status["progress"]["not_found"] += 1
+                    write_json(status_path(job_id), status)
+                    continue
+
+                query_parts = [f"Аптека: {engine.meta.title}", f"Название: {q_name}"]
+                query_parts.append(f"Кол-во: {q_qty}" if q_qty is not None else "Кол-во: —")
+                query_parts.append(f"Дозировка: {q_dosage}" if q_dosage else "Дозировка: —")
+                query_parts.append(f"Производитель: {q_manufacturer}" if q_manufacturer else "Производитель: —")
+                job_log(job_id, f"Запрос: {' | '.join(query_parts)}")
+
+                outcome, items = engine.parse_query(
+                    driver,
+                    q_name,
+                    PARSE_TIMEOUT,
+                    PARSE_MAX_RETRIES,
+                    expected_qty=q_qty,
+                    expected_dosage=q_dosage,
+                    qty_is_sum=q_sum,
+                    raw_input=raw,
+                    query_manufacturer=q_manufacturer,
+                    job_id=job_id,
+                )
+
+                if cancel_requested():
+                    finalize_cancel()
+                    return
+
+                found_title = "Не найдено"
+                if outcome == "matched" and items:
+                    first_title = (items[0].get("title") or "").strip()
+                    if first_title:
+                        found_title = first_title
+                job_log(job_id, f"Найдено: {found_title}")
+                if outcome == "matched":
+                    status["progress"]["matched"] += 1
+                    all_items.extend(items)
+                elif outcome == "not_found":
+                    status["progress"]["not_found"] += 1
+                    all_items.extend(items)
+                else:
+                    status["progress"]["failed"] += 1
+
                 status["progress"]["processed"] += 1
-                status["progress"]["not_found"] += 1
                 write_json(status_path(job_id), status)
-                continue
 
-            query_parts = [f"Название: {q_name}"]
-            query_parts.append(f"Кол-во: {q_qty}" if q_qty is not None else "Кол-во: —")
-            query_parts.append(f"Дозировка: {q_dosage}" if q_dosage else "Дозировка: —")
-            query_parts.append(f"Производитель: {q_manufacturer}" if q_manufacturer else "Производитель: —")
-            job_log(job_id, f"Запрос: {' | '.join(query_parts)}")
+                time.sleep(PARSE_PAUSE)
 
-            outcome, items = parse_one_query(
-                driver,
-                q_name,
-                PARSE_TIMEOUT,
-                PARSE_MAX_RETRIES,
-                expected_qty=q_qty,
-                expected_dosage=q_dosage,
-                qty_is_sum=q_sum,
-                raw_input=raw,
-                query_manufacturer=q_manufacturer,
-                job_id=job_id,
-            )
-
-            if cancel_requested():
-                finalize_cancel()
-                return
-
-            found_title = "Не найдено"
-            if outcome == "matched" and items:
-                first_title = (items[0].get("title") or "").strip()
-                if first_title:
-                    found_title = first_title
-            job_log(job_id, f"Найдено: {found_title}")
-            if outcome == "matched":
-                status["progress"]["matched"] += 1
-                all_items.extend(items)
-            elif outcome == "not_found":
-                status["progress"]["not_found"] += 1
-                all_items.extend(items)
-            else:
-                status["progress"]["failed"] += 1
-            
-            status["progress"]["processed"] += 1
-            write_json(status_path(job_id), status)
-
-            time.sleep(PARSE_PAUSE)
-
-            if cancel_requested():
-                finalize_cancel()
-                return
-
+                if cancel_requested():
+                    finalize_cancel()
+                    return
+                
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items})
 
         _write_result_csv(job_id, all_items, status, selected_city)

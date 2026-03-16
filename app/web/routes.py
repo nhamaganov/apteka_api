@@ -34,7 +34,7 @@ def index(request: Request):
 
 
 @router.post("/upload")
-async def upload(request: Request, file: UploadFile = File(...), city: str = Form("Иркутск")):
+async def upload(request: Request, file: UploadFile = File(...), city: str = Form("Иркутск"), pharmacies: list[str] = Form(["apteka_ru"])):
     """Обрабатывает загрузку Excel в UI и ставит задачу в очередь."""
     ensure_job_store()
 
@@ -53,7 +53,9 @@ async def upload(request: Request, file: UploadFile = File(...), city: str = For
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Не смог прочитать Excel: {e}")
 
-    write_json(queries_path(job_id), {"queries": queries, "city": city})
+    selected_pharmacies = [p for p in pharmacies if p in {"apteka_ru", "zdravcity"}] or ["apteka_ru"]
+
+    write_json(queries_path(job_id), {"queries": queries, "city": city, "pharmacies": selected_pharmacies})
 
     display_name = make_display_name(file.filename)
 
@@ -67,6 +69,7 @@ async def upload(request: Request, file: UploadFile = File(...), city: str = For
     data["display_name"] = display_name
     data["filename"] = file.filename
     data["city"] = city
+    data["pharmacies"] = selected_pharmacies
     data["cancelled"] = False
 
     write_json(status_path(job_id), data)
