@@ -33,6 +33,24 @@ Outcome = Literal["matched", "not_found", "failed"]
 # Wait helpers
 # ---------------------------
 
+ACTION_PAUSE_MIN = 0.8
+ACTION_PAUSE_MAX = 2.5
+
+
+def human_pause(min_delay: float = ACTION_PAUSE_MIN, max_delay: float = ACTION_PAUSE_MAX) -> None:
+    """Делает случайную паузу между действиями, чтобы снизить ботоподобное поведение."""
+    if max_delay < min_delay:
+        min_delay, max_delay = max_delay, min_delay
+    time.sleep(random.uniform(min_delay, max_delay))
+
+
+def type_like_human(element, text: str) -> None:
+    """Печатает текст в инпут с небольшими случайными задержками между символами."""
+    for char in text:
+        element.send_keys(char)
+        time.sleep(random.uniform(0.04, 0.16))
+
+
 def w(driver, timeout) -> WebDriverWait:
     """Сокрощение функции WebDriverWait"""
     return WebDriverWait(driver, timeout)
@@ -59,26 +77,26 @@ def find_clickable(driver_or_el, by, value, timeout) -> w:
 
 def make_driver() -> webdriver.Chrome:
     """Создание дравера браузера"""
-    # options = Options()
-    # options.add_argument("--headless=new")
-    # options.add_argument("--no-sandbox")
-    # options.add_argument("--disable-dev-shm-usage")
-    # options.add_argument("--window-size=1400,900")
+    options = Options()
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--window-size=1400,900")
 
-    # chrome_bin = os.environ.get("CHROME_BIN")
-    # if chrome_bin:
-    #     options.binary_location = chrome_bin
+    chrome_bin = os.environ.get("CHROME_BIN")
+    if chrome_bin:
+        options.binary_location = chrome_bin
 
-    # chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-    # service = Service(chromedriver_path)
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+    service = Service(chromedriver_path)
 
 
-    # return webdriver.Chrome(service=service, options=options)
+    return webdriver.Chrome(service=service, options=options)
     
     # For windows
-    options = Options()
-    options.add_argument("--window-size=1400,900")
-    return webdriver.Chrome(options=options)
+    # options = Options()
+    # options.add_argument("--window-size=1400,900")
+    # return webdriver.Chrome(options=options)
 
 
 # ---------------------------
@@ -134,7 +152,9 @@ def close_modal_if_any(driver, timeout) -> None:
     """Закрыть модалку, если появилась. Если нет, то не падаем"""
     try:
         close_btn = find_visible(driver, By.CLASS_NAME, "Modal__close", timeout)
+        human_pause()
         close_btn.click()
+        human_pause()
     except Exception:
         pass
 
@@ -151,12 +171,18 @@ def select_city(driver, city: str, timeout: int = 8) -> None:
         "span.SiteHeaderTop__link.SiteHeaderTop__city",
         timeout,
     )
+    human_pause()
     city_link.click()
+    human_pause()
     city_input = find_visible(driver, By.ID, "search-city", timeout)
+    human_pause()
     city_input.click()
+    human_pause()
     city_input.send_keys(Keys.CONTROL, "a")
+    human_pause()
     city_input.send_keys(Keys.BACKSPACE)
-    city_input.send_keys(city_name)
+    human_pause()
+    type_like_human(city_input, city_name)
     city_name_lower = city_name.lower()
 
     def matching_city_option(_driver):
@@ -176,6 +202,7 @@ def select_city(driver, city: str, timeout: int = 8) -> None:
         return False
 
     option = w(driver, timeout).until(matching_city_option)
+    human_pause()
     option.click()
 
     w(driver, timeout).until(
@@ -185,18 +212,21 @@ def select_city(driver, city: str, timeout: int = 8) -> None:
             .lower()
         )
     )
-    time.sleep(4)
+    human_pause(1.5, 3.5)
 
 
 def recover_to_home(driver) -> None:
     """Возвращение на главную страницу"""
+    human_pause()
     driver.get("https://apteka.ru/")
     
     try:
         close = WebDriverWait(driver, 2).until(
             EC.visibility_of_element_located((By.CLASS_NAME, "Modal__close"))
         )
+        human_pause()
         close.click()
+        human_pause()
     
     except Exception:
         pass
@@ -205,10 +235,14 @@ def recover_to_home(driver) -> None:
 def set_search_query(driver, query, timeout) -> None:
     """Заполнение поисковой строку запросом"""
     inp = find_visible(driver, By.ID, "apteka-search", timeout=timeout)
+    human_pause()
     inp.click()
+    human_pause()
     inp.send_keys(Keys.CONTROL, "a")
+    human_pause()
     inp.send_keys(Keys.BACKSPACE)
-    inp.send_keys(normalize(query))
+    human_pause()
+    type_like_human(inp, normalize(query))
 
 
 def format_price_2dp(raw: str) -> str:
@@ -513,7 +547,9 @@ def run_search_with_retry(driver, query, timeout, max_retries) -> None:
             prev_first = get_first_card_title(driver)
 
             set_search_query(driver, query, timeout=timeout)
+            human_pause()
             find_clickable(driver, By.CSS_SELECTOR, ".SearchBox__input-submit", timeout=timeout).click()
+            human_pause()
 
             end = time.time() + timeout
             while time.time() < end:
@@ -974,7 +1010,9 @@ def parse_product_page_one_item(
             old_url = _normalized_product_url(driver.current_url)
 
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target)
+            human_pause()
             driver.execute_script("arguments[0].click();", target)
+            human_pause()
 
             end = time.time() + timeout
             while time.time() < end:
@@ -1076,7 +1114,9 @@ def parse_cards(
         log_parse(f"PARSE search candidate[{idx}] title={title!r} href={href!r}")
 
         try:
+            human_pause()
             driver.get(href)
+            human_pause()
 
             if not is_product_page(driver):
                 log_parse(f"PARSE search candidate[{idx}] skip: not a product page")
@@ -1104,7 +1144,9 @@ def parse_cards(
             log_parse(f"PARSE search candidate[{idx}] failed: {e}")
 
         # Возвращаемся к поисковой выдаче и продолжаем со следующей карточки.
+        human_pause()
         driver.get(search_url)
+        human_pause()
         try:
             find(driver, By.CSS_SELECTOR, ".catalog-card.card-flex", timeout=timeout)
         except Exception:

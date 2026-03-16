@@ -99,6 +99,12 @@ def _apteka_title(city_name: str) -> str:
     return f"Apteka Ru - {normalized_city}" if normalized_city else "Apteka Ru"
 
 
+def _zdravcity_title(city_name: str) -> str:
+    """Возвращает заголовок блока Zdravcity с учетом выбранного города."""
+    normalized_city = (city_name or "").strip()
+    return f"Zdravcity - {normalized_city}" if normalized_city else "Zdravcity"
+
+
 def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: str = "") -> None:
 
     """Дополняет исходную таблицу результатами парсинга и сохраняет как XLSX."""
@@ -232,11 +238,15 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         list_start_row = header_row + 1
 
     by_input_name: dict[str, list[dict]] = {}
+    by_input_name_pharmacy: dict[str, dict[str, list[dict]]] = {}
     for item in items:
         key = _key(str(item.get("input_name") or ""))
         if not key:
             continue
         by_input_name.setdefault(key, []).append(item)
+        pharmacy_code = str(item.get("pharmacy") or "").strip().lower()
+        if pharmacy_code:
+            by_input_name_pharmacy.setdefault(pharmacy_code, {}).setdefault(key, []).append(item)
 
     main_extra_headers = [
         "Цена",
@@ -249,6 +259,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         "Цена",
         "Сообщение",
     ]
+    zdravcity_extra_headers = ["Найденный товар"]
 
     def _column_is_empty(col_idx: int) -> bool:
         if col_idx >= df.shape[1]:
@@ -269,14 +280,20 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             break
         insert_col += 1
 
-    required_cols = insert_col + len(main_extra_headers)
+    zdravcity_insert_col = insert_col + len(main_extra_headers)
+
+    required_cols = zdravcity_insert_col + len(zdravcity_extra_headers)
     while df.shape[1] < required_cols:
         df[df.shape[1]] = None
 
     for offset, name in enumerate(main_extra_headers):
         df.iat[header_row, insert_col + offset] = name
 
+    for offset, name in enumerate(zdravcity_extra_headers):
+        df.iat[header_row, zdravcity_insert_col + offset] = name
+
     apteka_rows: dict[int, list[object]] = {}
+    zdravcity_rows: dict[int, list[object]] = {}
     warning_rows: set[int] = set()
     no_info_rows: set[int] = set()
 
@@ -298,6 +315,31 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
     purchase_markup_formula_rows: list[int] = []
     site_markup_formula_rows: list[int] = []
 
+    def _candidate_dosage(candidate: dict) -> Optional[str]:
+        return _normalize_dosage(candidate.get("input_dosage"))
+
+    def _pick_candidate(candidates: list[dict], query_qty: Optional[int], query_dosage: Optional[str]) -> Optional[dict]:
+        if not candidates:
+            return None
+
+        if query_qty is not None:
+            qty_matched = [c for c in candidates if c.get("input_qty") == query_qty]
+            if not qty_matched:
+                return None
+        else:
+            qty_matched = [c for c in candidates if c.get("input_qty") is None]
+            if not qty_matched:
+                qty_matched = candidates
+
+        if query_dosage is not None:
+            dosage_matched = [c for c in qty_matched if _candidate_dosage(c) == query_dosage]
+            if not dosage_matched:
+                return None
+            return dosage_matched[0]
+
+        no_dosage = [c for c in qty_matched if _candidate_dosage(c) is None]
+        return no_dosage[0] if no_dosage else qty_matched[0]
+
     for r in range(header_row + 1, df.shape[0]):
         raw = df.iat[r, header_col]
         if _is_empty(raw):
@@ -308,100 +350,72 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         if not query_name:
             continue
 
-        query_qty, query_qty_is_sum = extract_qty_from_xls_row(raw_text)
+        query_qty, query_qty_is_sum = extract_qty_from_xls_row(raw_text) 
         query_dosage = _normalize_dosage(extract_dosage_from_xls_row(raw_text))
-        candidates = by_input_name.get(_key(query_name), [])
-        if not candidates:
-            no_info_rows.add(r)
-            continue
 
-        # 1) Сначала фильтруем кандидатов по количеству.
-        qty_matched: list[dict] = []
-        if query_qty is not None:
-            qty_matched = [c for c in candidates if c.get("input_qty") == query_qty]
-            if not qty_matched:
-                # Если в строке есть явное количество, не подставляем запись
-                # с другим количеством, чтобы не перепутать соседние позиции.
-                no_info_rows.add(r)
-                continue
-        else:
-            qty_matched = [c for c in candidates if c.get("input_qty") is None]
-            if not qty_matched:
-                qty_matched = candidates
+        key = _key(query_name)
+        apteka_candidates = by_input_name_pharmacy.get("apteka_ru", {}).get(key, by_input_name.get(key, []))
+        item = _pick_candidate(apteka_candidates, query_qty, query_dosage)
 
-        # 2) Затем фильтруем по дозировке, если она задана в строке.
-        def _candidate_dosage(candidate: dict) -> Optional[str]:
-            return _normalize_dosage(candidate.get("input_dosage"))
-
-        item = None
-        if query_dosage is not None:
-            dosage_matched = [c for c in qty_matched if _candidate_dosage(c) == query_dosage]
-            if not dosage_matched:
-                # Если в исходной строке есть дозировка, не подставляем
-                # запись с другой дозировкой.
-                no_info_rows.add(r)
-                continue
-            item = dosage_matched[0]
-        else:
-            no_dosage = [c for c in qty_matched if _candidate_dosage(c) is None]
-            item = no_dosage[0] if no_dosage else qty_matched[0]
-
-        parsed_price = item.get("price", "")
-        if _is_empty(parsed_price):
+        if item is None:
             no_info_rows.add(r)
 
-        base_markup_value: object = ""
-        purchase_markup_value: object = ""
-        site_markup_value: object = ""
-        parsed_price_num = _to_number(parsed_price)
+        parsed_price = ""
+        if item is not None:
+            parsed_price = item.get("price", "")
+            if _is_empty(parsed_price):
+                no_info_rows.add(r)
 
-        if base_price_col is not None:
-            base_price = _to_number(df.iat[r, base_price_col])
             parsed_price_num = _to_number(parsed_price)
-            if base_price is not None and parsed_price_num is not None:
-                base_markup_formula_rows.append(r)
 
-        if purchase_price_col is not None:
-            purchase_price = _to_number(df.iat[r, purchase_price_col])
-            if purchase_price is not None and parsed_price_num is not None:
-                purchase_markup_formula_rows.append(r)
+            if base_price_col is not None:
+                base_price = _to_number(df.iat[r, base_price_col])
+                if base_price is not None and parsed_price_num is not None:
+                    base_markup_formula_rows.append(r)
 
-        if site_price_col is not None:
-            site_price = _to_number(df.iat[r, site_price_col])
-            if site_price is not None and parsed_price_num is not None:
-                site_markup_formula_rows.append(r)
+            if purchase_price_col is not None:
+                purchase_price = _to_number(df.iat[r, purchase_price_col])
+                if purchase_price is not None and parsed_price_num is not None:
+                    purchase_markup_formula_rows.append(r)
 
-        row_values = [
-            parsed_price,
-            base_markup_value,
-            purchase_markup_value,
-            site_markup_value,
-        ]
+            if site_price_col is not None:
+                site_price = _to_number(df.iat[r, site_price_col])
+                if site_price is not None and parsed_price_num is not None:
+                    site_markup_formula_rows.append(r)
 
+            apteka_rows[r] = [
+                item.get("title", ""),
+                item.get("price", ""),
+                item.get("message", ""),
+            ]
+
+            manufacturer_score_match = re.search(r"\bscore\s*=\s*(\d+)\b", str(item.get("message", "")), flags=re.IGNORECASE)
+            manufacturer_score = int(manufacturer_score_match.group(1)) if manufacturer_score_match else None
+
+            message_text = str(item.get("message", ""))
+            message_lower = message_text.lower()
+            dosage_no_data = "совпадение дозировки: нет данных" in message_lower
+            qty_sum_warning = query_qty_is_sum or ("уточните цену на сайте, возможны неточности" in message_lower)
+
+            expected_dosage = _normalize_dosage(item.get("input_dosage"))
+            found_dosage = _normalize_dosage(item.get("found_dosage"))
+            dosage_exact = dosage_no_data or expected_dosage is None or expected_dosage == found_dosage
+            manufacturer_exact = manufacturer_score is None or manufacturer_score > 60
+
+            if qty_sum_warning or not (dosage_exact and manufacturer_exact):
+                warning_rows.add(r)
+
+        row_values = [parsed_price, "", "", ""]
         for offset, value in enumerate(row_values):
             df.iat[r, insert_col + offset] = value
 
-        apteka_rows[r] = [
-            item.get("title", ""),
-            item.get("price", ""),
-            item.get("message", ""),
-        ]
-
-        manufacturer_score_match = re.search(r"\bscore\s*=\s*(\d+)\b", str(item.get("message", "")), flags=re.IGNORECASE)
-        manufacturer_score = int(manufacturer_score_match.group(1)) if manufacturer_score_match else None
-
-        message_text = str(item.get("message", ""))
-        message_lower = message_text.lower()
-        dosage_no_data = "совпадение дозировки: нет данных" in message_lower
-        qty_sum_warning = query_qty_is_sum or ("уточните цену на сайте, возможны неточности" in message_lower)
-
-        expected_dosage = _normalize_dosage(item.get("input_dosage"))
-        found_dosage = _normalize_dosage(item.get("found_dosage"))
-        dosage_exact = dosage_no_data or expected_dosage is None or expected_dosage == found_dosage
-        manufacturer_exact = manufacturer_score is None or manufacturer_score > 60
-
-        if qty_sum_warning or not (dosage_exact and manufacturer_exact):
-            warning_rows.add(r)
+        zdravcity_candidates = by_input_name_pharmacy.get("zdravcity", {}).get(key, [])
+        zdravcity_item = _pick_candidate(zdravcity_candidates, query_qty, query_dosage)
+        if zdravcity_item is not None:
+            zdravcity_rows[r] = [zdravcity_item.get("title", "")]
+            df.iat[r, zdravcity_insert_col] = zdravcity_item.get("title", "")
+        else:
+            df.iat[r, zdravcity_insert_col] = ""
 
     wb = Workbook()
     ws = wb.active
@@ -490,8 +504,10 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
 
     source_min_col = 1
     source_max_col = insert_col
-    parsed_min_col = insert_col + 1
-    parsed_max_col = insert_col + len(main_extra_headers)
+    apteka_min_col = insert_col + 1
+    apteka_max_col = insert_col + len(main_extra_headers)
+    zdravcity_min_col = zdravcity_insert_col + 1
+    zdravcity_max_col = zdravcity_insert_col + len(zdravcity_extra_headers)
 
     ws.merge_cells(
         start_row=1,
@@ -507,15 +523,27 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
 
     ws.merge_cells(
         start_row=1,
-        start_column=parsed_min_col,
+        start_column=apteka_min_col,
         end_row=1,
-        end_column=parsed_max_col,
+        end_column=apteka_max_col,
     )
-    parsed_header_cell = ws.cell(row=1, column=parsed_min_col)
-    parsed_header_cell.value = _apteka_title(city_name)
-    parsed_header_cell.alignment = Alignment(horizontal="center", vertical="center")
-    parsed_header_cell.font = Font(size=22, bold=True)
-    parsed_header_cell.fill = PatternFill(fill_type="solid", fgColor="D0E0E3")
+    apteka_header_cell = ws.cell(row=1, column=apteka_min_col)
+    apteka_header_cell.value = _apteka_title(city_name)
+    apteka_header_cell.alignment = Alignment(horizontal="center", vertical="center")
+    apteka_header_cell.font = Font(size=22, bold=True)
+    apteka_header_cell.fill = PatternFill(fill_type="solid", fgColor="D0E0E3")
+
+    ws.merge_cells(
+        start_row=1,
+        start_column=zdravcity_min_col,
+        end_row=1,
+        end_column=zdravcity_max_col,
+    )
+    zdravcity_header_cell = ws.cell(row=1, column=zdravcity_min_col)
+    zdravcity_header_cell.value = _zdravcity_title(city_name)
+    zdravcity_header_cell.alignment = Alignment(horizontal="center", vertical="center")
+    zdravcity_header_cell.font = Font(size=22, bold=True)
+    zdravcity_header_cell.fill = PatternFill(fill_type="solid", fgColor="D0E0E3")
 
     def _max_line_len(value: object) -> int:
         text = "" if pd.isna(value) else str(value)
@@ -600,6 +628,13 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             max_row=last_row,
             min_col=insert_col,
             max_col=insert_col + len(main_extra_headers) - 1,
+            side=parsed_side,
+        )
+        _apply_table_borders(
+            min_row=header_row,
+            max_row=last_row,
+            min_col=zdravcity_insert_col,
+            max_col=zdravcity_insert_col + len(zdravcity_extra_headers) - 1,
             side=parsed_side,
         )
 

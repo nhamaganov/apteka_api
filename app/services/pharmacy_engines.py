@@ -12,9 +12,11 @@ from selenium.webdriver.common.keys import Keys
 
 from app.services.apteka_parser import (
     close_modal_if_any,
+    human_pause,
     parse_one_query,
     recover_to_home,
     select_city,
+    type_like_human,
 )
 
 
@@ -94,12 +96,12 @@ class ZdravcityEngine(BasePharmacyEngine):
 
     def prepare(self, driver, city: str, timeout: int, job_id: Optional[str] = None) -> Dict:
         city_name = (city or "").strip()
+        human_pause()
         driver.get("https://zdravcity.ru/")
         region_input_selector = "input.TextField_text-field-input__FqRfW[placeholder='Название региона']"
         region_label_selector = "div.RegionLabel_label__U9eXf.Info_address-label___9_P3"
         options_selector = "ul.Autocomplete_autocomplete-suggestions__7QhAe div.Autocomplete_region-autocomplete-suggestion__OvNQ1"
         wait = WebDriverWait(driver, timeout)
-        short_wait = WebDriverWait(driver, min(5, timeout))
 
         try:
             input_element = wait.until(
@@ -110,16 +112,22 @@ class ZdravcityEngine(BasePharmacyEngine):
 
         if input_element is None:
             trigger = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, region_label_selector)))
+            human_pause()
             trigger.click()
+            human_pause()
             input_element = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, region_input_selector)))
 
         if input_element is None:
             raise TimeoutException("Не удалось открыть выбор региона в Zdravcity")
 
+        human_pause()
         input_element.click()
+        human_pause()
         input_element.send_keys(Keys.CONTROL, "a")
+        human_pause()
         input_element.send_keys(Keys.BACKSPACE)
-        input_element.send_keys(city_name)
+        human_pause()
+        type_like_human(input_element, city_name)
 
         end_time = time.time() + timeout
         selected = False
@@ -127,7 +135,9 @@ class ZdravcityEngine(BasePharmacyEngine):
             for option in driver.find_elements(By.CSS_SELECTOR, options_selector):
                 option_text = (option.text or "").strip()
                 if option_text == city_name:
+                    human_pause()
                     option.click()
+                    human_pause()
                     selected = True
                     break
             if not selected:
@@ -166,13 +176,71 @@ class ZdravcityEngine(BasePharmacyEngine):
         query_manufacturer: str = "",
         job_id: Optional[str] = None,
     ) -> Tuple[Outcome, List[Dict]]:
+        wait = WebDriverWait(driver, timeout)
+
+        for _ in range(max_retries):
+            try:
+                search_input = wait.until(
+                    EC.visibility_of_element_located((By.ID, "headerSearchInput"))
+                )
+                search_input.click()
+                search_input.send_keys(Keys.CONTROL, "a")
+                search_input.send_keys(Keys.BACKSPACE)
+                search_input.send_keys((query_name or "").strip())
+
+                search_button = wait.until(
+                    EC.element_to_be_clickable(
+                        (
+                            By.XPATH,
+                            "//button[contains(@class,'Search_search-button') and normalize-space()='Найти']",
+                        )
+                    )
+                )
+                search_button.click()
+
+                wait.until(
+                    EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, "div[class*='ProductsList_list-grid-inner']")
+                    )
+                )
+
+                first_title = wait.until(
+                    EC.visibility_of_element_located(
+                        (
+                            By.CSS_SELECTOR,
+                            "div[class*='ProductsList_list-grid-item'] a[class*='Horizontal_horizontal-title'] span[title]",
+                        )
+                    )
+                )
+                title_text = (first_title.get_attribute("title") or first_title.text or "").strip()
+                if not title_text:
+                    time.sleep(0.3)
+                    continue
+                return "matched", [
+                    {
+                        "input_name": query_name,
+                        "input_qty": expected_qty,
+                        "input_dosage": expected_dosage,
+                        "title": title_text,
+                        "price": "",
+                        "link": driver.current_url,
+                        "message": "Найден первый результат Zdravcity",
+                        "pharmacy": self.meta.code,
+                        "pharmacy_title": self.meta.title,
+                    }
+                ]
+            except TimeoutException:
+                time.sleep(0.5)
+
         return "not_found", [
             {
                 "input_name": query_name,
+                "input_qty": expected_qty,
+                "input_dosage": expected_dosage,
                 "title": "",
                 "price": "",
                 "link": driver.current_url,
-                "message": "Для Zdravcity пока реализован только выбор города",
+                "message": "Не удалось получить первый результат Zdravcity",
                 "pharmacy": self.meta.code,
                 "pharmacy_title": self.meta.title,
             }
