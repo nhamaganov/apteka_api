@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
@@ -96,27 +98,20 @@ class ZdravcityEngine(BasePharmacyEngine):
         region_input_selector = "input.TextField_text-field-input__FqRfW[placeholder='Название региона']"
         region_label_selector = "div.RegionLabel_label__U9eXf.Info_address-label___9_P3"
         options_selector = "ul.Autocomplete_autocomplete-suggestions__7QhAe div.Autocomplete_region-autocomplete-suggestion__OvNQ1"
-        input_element = None
+        wait = WebDriverWait(driver, timeout)
+        short_wait = WebDriverWait(driver, min(5, timeout))
+
         try:
-            input_element = driver.find_element(By.CSS_SELECTOR, region_input_selector)
-            time.sleep(3)
-            if not input_element.is_displayed():
-                input_element = None
-        except Exception:
+            input_element = wait.until(
+                EC.visibility_of_element_located((By.CSS_SELECTOR, region_input_selector))
+            )
+        except TimeoutException:
             input_element = None
 
         if input_element is None:
-            trigger = driver.find_element(By.CSS_SELECTOR, region_label_selector)
+            trigger = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, region_label_selector)))
             trigger.click()
-            end_time = time.time() + timeout
-            while time.time() < end_time:
-                try:
-                    input_element = driver.find_element(By.CSS_SELECTOR, region_input_selector)
-                    if input_element.is_displayed():
-                        break
-                except Exception:
-                    pass
-                time.sleep(0.2)
+            input_element = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, region_input_selector)))
 
         if input_element is None:
             raise TimeoutException("Не удалось открыть выбор региона в Zdravcity")
