@@ -839,11 +839,14 @@ def parse_product_page_one_item(
     min_match_score = 0.7
 
     def evaluate_title_match(title: str) -> Tuple[bool, float, Optional[int], Optional[str], Optional[str], str]:
-        if not title or "набор" in title.lower():
-            return False, 0.0, None, None, None, ""
+        if not title:
+            return False, 0.0, None, None, None, "Не удалось определить название товара"
+
+        if "набор" in title.lower():
+            return False, 0.0, None, None, None, "Товар является набором и был исключён"
 
         if not is_name_match(query_name, title):
-            return False, 0.0, None, None, None, ""
+            return False, 0.0, None, None, None, f"Название {title!r} не совпало с запросом"
 
         found_brand = _get_product_brand(driver)
         manufacturer_details = manufacturer_match_details(
@@ -887,7 +890,11 @@ def parse_product_page_one_item(
 
         if expected_qty is not None:
             if found_qty != expected_qty:
-                return False, 0.0, found_qty, found_dosage, found_brand, ""
+                if found_qty is None:
+                    qty_note = f"Не удалось определить количество упаковки, ожидалось {expected_qty}"
+                else:
+                    qty_note = f"Количество не совпало: ожидалось {expected_qty}, найдено {found_qty}"
+                return False, 0.0, found_qty, found_dosage, found_brand, qty_note
             criteria_scores.append(1.0)
 
         if normalized_expected_dosage is not None:
@@ -912,7 +919,9 @@ def parse_product_page_one_item(
             score = sum(criteria_scores) / len(criteria_scores)
 
         if score < min_match_score:
-            return False, 0.0, found_qty, found_dosage, found_brand, ""
+            if notes:
+                return False, 0.0, found_qty, found_dosage, found_brand, " | ".join(notes)
+            return False, 0.0, found_qty, found_dosage, found_brand, "Вариант не прошёл проверку по критериям совпадения"
 
         notes.append(manufacturer_note)
         return True, score, found_qty, found_dosage, found_brand, " | ".join(notes)
@@ -941,12 +950,16 @@ def parse_product_page_one_item(
 
     best_score = -1.0
     best_item: Optional[Dict] = None
+    rejection_reasons: list[str] = []
 
     def consider_current_page() -> None:
         nonlocal best_score, best_item
         title = read_product_title()
         ok, score, found_qty, found_dosage, found_brand, note = evaluate_title_match(title)
         if not ok:
+            rejection_reason = note or f"Вариант {title!r} не прошёл проверку"
+            rejection_reasons.append(rejection_reason)
+            log_parse(f"PARSE product variant rejected: title={title!r} reason={rejection_reason!r}")
             return
 
         if score > best_score:
@@ -999,7 +1012,12 @@ def parse_product_page_one_item(
     if best_item is not None:
         return True, best_item
 
-    not_found_message = "Нет подходящего варианта"
+    unique_reasons: list[str] = []
+    for reason in rejection_reasons:
+        if reason and reason not in unique_reasons:
+            unique_reasons.append(reason)
+
+    not_found_message = "; ".join(unique_reasons[:3]) if unique_reasons else "Нет подходящего варианта"
     if warning_message:
         not_found_message = f"{warning_message} | {not_found_message}"
 
@@ -1058,7 +1076,7 @@ def parse_cards(
     query_manufacturer: str = "",
     query_barcode: str = "",
     job_id: Optional[str] = None,
-) -> List[Dict]:
+) -> Tuple[List[Dict], List[str]]:
     """
     В ветке search заходит в каждую подходящую карточку и применяет
     тот же алгоритм, что и parse_product_page_one_item.
@@ -1073,6 +1091,8 @@ def parse_cards(
     search_url = driver.current_url
     candidates = _collect_matching_card_links(driver, query_name)
     log_parse(f"PARSE search candidates={len(candidates)}")
+
+    rejection_reasons: list[str] = []
 
     for idx, candidate in enumerate(candidates, start=1):
         href = candidate["href"]
@@ -1099,13 +1119,16 @@ def parse_cards(
                 )
                 if ok:
                     log_parse(f"PARSE search candidate[{idx}] matched")
-                    return [item]
+                    return [item], rejection_reasons
 
+                candidate_reason = item.get("message", "Не удалось распарсить карточку")
+                rejection_reasons.append(f"{title}: {candidate_reason}")
                 log_parse(
-                    f"PARSE search candidate[{idx}] not matched: message={item.get('message')!r}"
+                    f"PARSE search candidate[{idx}] not matched: message={candidate_reason!r}"
                 )
 
         except Exception as e:
+            rejection_reasons.append(f"{title}: ошибка открытия карточки: {e}")
             log_parse(f"PARSE search candidate[{idx}] failed: {e}")
 
         # Возвращаемся к поисковой выдаче и продолжаем со следующей карточки.
@@ -1115,7 +1138,7 @@ def parse_cards(
         except Exception:
             pass
 
-    return []
+    return [], rejection_reasons
 
 # ---------------------------
 # Public API for worker
@@ -1241,7 +1264,7 @@ def parse_one_query(
             f"PARSE context search: cards={len(cards)} first_title={first_title!r} first_price={first_price!r}"
         )
 
-        items = parse_cards(
+        items, rejection_reasons = parse_cards(
             driver,
             query_name=query_name,
             query_raw=raw_input or query_name,
@@ -1258,7 +1281,8 @@ def parse_one_query(
             log_search_result(page_type=page_type, product_title=items[0].get("title", ""))
             return "matched", items
 
-        log_search_result(page_type=page_type, reason="Подходящий товар не найден в выдаче")
+        search_reason = "; ".join(rejection_reasons[:3]) if rejection_reasons else "Подходящий товар не найден в выдаче"
+        log_search_result(page_type=page_type, reason=search_reason)
         return "not_found", []
 
     except WebDriverException as e:

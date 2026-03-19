@@ -50,7 +50,6 @@ def normalize(s: str) -> str:
         return ""
     s = s.strip().lower().replace("ё", "е")
     s = re.sub(r"[\"'`]", "", s)
-    s = re.sub(r"\bспираль\b", " ", s)
     s = re.sub(r"\bв\s*/\s*м\b", " ", s) 
     s = re.sub(r"[•·/,_:;]", " ", s)
     s = re.sub(r"\s+", " ", s).strip()

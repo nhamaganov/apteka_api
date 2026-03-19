@@ -57,6 +57,16 @@ def _find_header_columns(frame: pd.DataFrame) -> tuple[int, int, Optional[int]]:
     return header_row, header_col, barcode_col
 
 
+def _find_product_code_column(frame: pd.DataFrame) -> tuple[int, int]:
+    """Ищет строку заголовка и индекс столбца 'Код товара'."""
+    for r in range(frame.shape[0]):
+        for c in range(frame.shape[1]):
+            cell = str(frame.iat[r, c]).strip().lower()
+            if cell == "код товара":
+                return r, c
+    raise ValueError("Не найден столбец 'Код товара'")
+
+
 def _normalize_barcode(value: object) -> str:
     """Нормализует штрих-код из Excel в строку без служебных символов."""
     if value is None or pd.isna(value):
@@ -71,6 +81,60 @@ def _normalize_barcode(value: object) -> str:
     if re.fullmatch(r"\d+\.0+", text):
         text = text.split(".", 1)[0]
     return text
+
+
+def _normalize_product_code(value: object) -> str:
+    """Нормализует код товара из Excel в строку цифр/символов без лишних пробелов."""
+    if value is None or pd.isna(value):
+        return ""
+
+    text = str(value).strip()
+    if not text:
+        return ""
+
+    text = re.sub(r"\s+", "", text)
+    if re.fullmatch(r"\d+\.0+", text):
+        text = text.split(".", 1)[0]
+    return text
+
+
+def extract_product_codes_from_excel(path: str) -> list[dict]:
+    """Извлекает из Excel коды товаров и связанные данные строки."""
+    df = read_spreadsheet(path)
+    header_row, code_col = _find_product_code_column(df)
+
+    name_col: Optional[int] = None
+    for c in range(df.shape[1]):
+        cell = str(df.iat[header_row, c]).strip().lower()
+        if "наименование товара" in cell:
+            name_col = c
+            break
+
+    items: list[dict] = []
+    seen: set[tuple[str, int]] = set()
+    for row_idx in range(header_row + 1, df.shape[0]):
+        product_code = _normalize_product_code(df.iat[row_idx, code_col])
+        if not product_code:
+            continue
+
+        key = (product_code, row_idx)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        name = ""
+        if name_col is not None:
+            raw_name = df.iat[row_idx, name_col]
+            if raw_name is not None and not pd.isna(raw_name):
+                name = str(raw_name).strip()
+
+        items.append({
+            "row_index": row_idx + 1,
+            "product_code": product_code,
+            "name": name,
+        })
+
+    return items
 
 
 def extract_queries_from_excel(path: str) -> list[dict]:

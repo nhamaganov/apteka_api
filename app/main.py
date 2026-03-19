@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes_jobs import router as jobs_router
+from app.api.routes_internal import router as internal_router
 from app.core.storage import ensure_job_store
 from app.core.queue import JobQueue
 from app.services.job_runner import worker_loop
@@ -42,3 +43,4 @@ def health():
     return {"status": "ok"}
 
 app.include_router(jobs_router, prefix="/jobs", tags=["jobs"])
+app.include_router(internal_router)
