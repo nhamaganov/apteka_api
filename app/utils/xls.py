@@ -34,38 +34,67 @@ def build_query_name(raw: str) -> str:
     return f"{base_name} {variant_match.group(1)}"
 
 
+def _find_header_columns(frame: pd.DataFrame) -> tuple[int, int, Optional[int]]:
+    """Ищет строку заголовка и индексы столбцов названия и ШК."""
+    header_row = header_col = None
+    barcode_col: Optional[int] = None
+
+    for r in range(frame.shape[0]):
+        row_barcode_col: Optional[int] = None
+        for c in range(frame.shape[1]):
+            cell = str(frame.iat[r, c]).strip().lower()
+            if header_col is None and "наименование товара" in cell:
+                header_row, header_col = r, c
+            if row_barcode_col is None and cell in {"шк", "штрих код", "штрихкод", "barcode"}:
+                row_barcode_col = c
+        if header_row is not None:
+            barcode_col = row_barcode_col
+            break
+
+    if header_row is None or header_col is None:
+        raise ValueError("Не найден столбец 'Наименование товара'")
+
+    return header_row, header_col, barcode_col
+
+
+def _normalize_barcode(value: object) -> str:
+    """Нормализует штрих-код из Excel в строку без служебных символов."""
+    if value is None or pd.isna(value):
+        return ""
+
+    text = str(value).strip()
+    if not text:
+        return ""
+
+    text = text.replace(" ", "")
+    text = re.sub(r"\s+", "", text)
+    if re.fullmatch(r"\d+\.0+", text):
+        text = text.split(".", 1)[0]
+    return text
+
+
 def extract_queries_from_excel(path: str) -> list[dict]:
-    """Из передаваемого excel-файла возвращает все названия и количества препаратов"""
+    """Из передаваемого excel-файла возвращает все названия, количества и штрих-коды препаратов."""
     df = read_spreadsheet(path)
 
-    header_row = header_col = None
+    header_row, header_col, barcode_col = _find_header_columns(df)
 
-    for r in range(df.shape[0]):
-        for c in range(df.shape[1]):
-            cell = str(df.iat[r, c]).lower()
-            if "наименование товара" in cell:
-                header_row, header_col = r, c
-                break
-        if header_row is not None:
-            break
-    
-    if header_row is None:
-        raise ValueError("Не найден столбец 'Наименование товара'")
-    
-    col = (
-        df.iloc[header_row + 1 :, header_col]
-        .dropna()  # Удаляет пустые строки
-        .astype(str)
-    )
-    
     seen = set()
     queries: list[dict] = []
 
-    for raw in col.tolist():
+    for row_idx in range(header_row + 1, df.shape[0]):
+        raw_value = df.iat[row_idx, header_col]
+        if pd.isna(raw_value):
+            continue
+
+        raw = str(raw_value).strip()
+        if not raw:
+            continue
+
         name = build_query_name(raw)
         if not name:
             continue
-        
+
         qty, qty_is_sum = extract_qty_from_xls_row(raw)
         dosage = extract_dosage_from_xls_row(raw)
 
@@ -74,7 +103,9 @@ def extract_queries_from_excel(path: str) -> list[dict]:
         if idx != -1:
             manufacturer = raw[idx + 1:].strip()
 
-        key = (name.lower(), qty, dosage, manufacturer.lower())
+        barcode = _normalize_barcode(df.iat[row_idx, barcode_col]) if barcode_col is not None else ""
+
+        key = (name.lower(), qty, dosage, manufacturer.lower(), barcode)
         if key in seen:
             continue
         seen.add(key)
@@ -84,11 +115,11 @@ def extract_queries_from_excel(path: str) -> list[dict]:
             "qty": qty,
             "dosage": dosage,
             "manufacturer": manufacturer,
+            "barcode": barcode,
             "qty_is_sum": qty_is_sum,
             "raw": raw,
             "row": raw, # потом можно убрать, для лога!!! 
         })
-
 
     return queries
 
@@ -104,18 +135,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
     """Дополняет исходную таблицу результатами парсинга и сохраняет как XLSX."""
     df = read_spreadsheet(path)
 
-    header_row = header_col = None
-    for r in range(df.shape[0]):
-        for c in range(df.shape[1]):
-            cell = str(df.iat[r, c]).lower()
-            if "наименование товара" in cell:
-                header_row, header_col = r, c
-                break
-        if header_row is not None:
-            break
-
-    if header_row is None:
-        raise ValueError("Не найден столбец 'Наименование товара'")
+    header_row, header_col, barcode_col = _find_header_columns(df)
 
     def _is_empty(v) -> bool:
         if pd.isna(v):
@@ -232,11 +252,15 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         list_start_row = header_row + 1
 
     by_input_name: dict[str, list[dict]] = {}
+    by_input_barcode: dict[str, list[dict]] = {}
     for item in items:
         key = _key(str(item.get("input_name") or ""))
-        if not key:
-            continue
-        by_input_name.setdefault(key, []).append(item)
+        if key:
+            by_input_name.setdefault(key, []).append(item)
+
+        barcode_key = _normalize_barcode(item.get("input_barcode"))
+        if barcode_key:
+            by_input_barcode.setdefault(barcode_key, []).append(item)
 
     main_extra_headers = [
         "Цена",
@@ -310,7 +334,10 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
 
         query_qty, query_qty_is_sum = extract_qty_from_xls_row(raw_text)
         query_dosage = _normalize_dosage(extract_dosage_from_xls_row(raw_text))
-        candidates = by_input_name.get(_key(query_name), [])
+        query_barcode = _normalize_barcode(df.iat[r, barcode_col]) if barcode_col is not None else ""
+        candidates = by_input_barcode.get(query_barcode, []) if query_barcode else []
+        if not candidates:
+            candidates = by_input_name.get(_key(query_name), [])
         if not candidates:
             no_info_rows.add(r)
             continue

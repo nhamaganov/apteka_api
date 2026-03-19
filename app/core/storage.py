@@ -66,6 +66,12 @@ def log_path(job_id: str) -> Path:
     return job_dir(job_id) / "runner.log"
 
 
+def search_log_path(job_id: str) -> Path:
+    """Возвращает путь к файлу с подробным логом поиска."""
+    return job_dir(job_id) / "search.log"
+
+
+
 def list_jobs(limit: int = 20) -> List[Dict[str, Any]]:
     """Возвращает список всех существующих парсингов"""
     ensure_job_store()

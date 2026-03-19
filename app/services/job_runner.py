@@ -5,7 +5,7 @@ from typing import Dict, List
 from zoneinfo import ZoneInfo
 
 from app.core.settings import PARSE_MAX_RETRIES, PARSE_PAUSE, PARSE_TIMEOUT
-from app.core.storage import log_path, result_file_path, status_path, result_path, queries_path, read_json, write_json, upload_path
+from app.core.storage import log_path, result_file_path, search_log_path, status_path, result_path, queries_path, read_json, write_json, upload_path
 from app.core.queue import JobQueue
 from app.core.time import now_iso
 from app.utils.xls import build_enriched_xlsx, build_flat_xlsx
@@ -67,6 +67,7 @@ def _process_job_sync(job_id: str) -> None:
                 q_sum = False
                 raw = q
                 q_manufacturer = ""
+                q_barcode = ""
             else:
                 q_name = (q.get("name")or "").strip()
                 q_qty = q.get("qty", None)
@@ -74,6 +75,7 @@ def _process_job_sync(job_id: str) -> None:
                 q_sum = bool(q.get("qty_is_sum", False))
                 raw = q.get("raw") or q.get("row") or q_name
                 q_manufacturer = (q.get("manufacturer") or "").strip()
+                q_barcode = (q.get("barcode") or "").strip()
 
             if not q_name:
                 status["progress"]["processed"] += 1
@@ -85,6 +87,7 @@ def _process_job_sync(job_id: str) -> None:
             query_parts.append(f"Кол-во: {q_qty}" if q_qty is not None else "Кол-во: —")
             query_parts.append(f"Дозировка: {q_dosage}" if q_dosage else "Дозировка: —")
             query_parts.append(f"Производитель: {q_manufacturer}" if q_manufacturer else "Производитель: —")
+            query_parts.append(f"ШК: {q_barcode}" if q_barcode else "ШК: —")
             job_log(job_id, f"Запрос: {' | '.join(query_parts)}")
 
             outcome, items = parse_one_query(
@@ -97,6 +100,7 @@ def _process_job_sync(job_id: str) -> None:
                 qty_is_sum=q_sum,
                 raw_input=raw,
                 query_manufacturer=q_manufacturer,
+                query_barcode=q_barcode,
                 job_id=job_id,
             )
 
@@ -181,6 +185,15 @@ def job_log(job_id: str, msg: str) -> None:
     p = log_path(job_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     line = f"{datetime.now(ZoneInfo('Asia/Irkutsk')).strftime('%d-%m %H:%M')} | {msg}\n"
+    with p.open("a", encoding="utf-8") as f:
+        f.write(line)
+
+
+def search_log(job_id: str, msg: str) -> None:
+    """Добавляет строку в отдельный лог поисковых переходов."""
+    p = search_log_path(job_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    line = f"{datetime.now(ZoneInfo('Asia/Irkutsk')).strftime('%d-%m %H:%M:%S')} | {msg}\n"
     with p.open("a", encoding="utf-8") as f:
         f.write(line)
 

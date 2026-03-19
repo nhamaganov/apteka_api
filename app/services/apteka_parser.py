@@ -785,6 +785,7 @@ def parse_product_page_one_item(
     expected_dosage: Optional[str],
     qty_is_sum: bool,
     query_manufacturer: str = "",
+    query_barcode: str = "",
     timeout: int = 6,
     job_id: str | None = None,
 ) -> Tuple[bool, Dict]:
@@ -927,6 +928,7 @@ def parse_product_page_one_item(
         return {
             "input_name": query_name,
             "input_manufacturer": query_manufacturer or extract_query_manufacturer(query_raw),
+            "input_barcode": query_barcode,
             "title": title,
             "found_manufacturer": found_brand or "",
             "price": price,
@@ -1003,6 +1005,7 @@ def parse_product_page_one_item(
 
     return False, {
         "input_name": query_name,
+        "input_barcode": query_barcode,
         "message": not_found_message,
         "input_qty": expected_qty,
         "input_dosage": normalized_expected_dosage,
@@ -1053,6 +1056,7 @@ def parse_cards(
     qty_is_sum: bool,
     timeout: int,
     query_manufacturer: str = "",
+    query_barcode: str = "",
     job_id: Optional[str] = None,
 ) -> List[Dict]:
     """
@@ -1086,6 +1090,7 @@ def parse_cards(
                     query_name=query_name,
                     query_raw=query_raw,
                     query_manufacturer=query_manufacturer,
+                    query_barcode=query_barcode,
                     expected_qty=expected_qty,
                     expected_dosage=expected_dosage,
                     qty_is_sum=qty_is_sum,
@@ -1126,6 +1131,7 @@ def parse_one_query(
     qty_is_sum: bool = False,
     raw_input: Optional[str] = None,
     query_manufacturer: str = "",
+    query_barcode: str = "",
     job_id: Optional[str] = None,
 ) -> Tuple[Outcome, List[Dict]]:
     """Парсит один запрос и возвращает результат с найденными позициями."""
@@ -1136,11 +1142,32 @@ def parse_one_query(
         from app.services.job_runner import job_log
         job_log(job_id, msg)
 
+    def log_search_result(page_type: str, product_title: str = "", reason: str = "") -> None:
+        """Пишет краткий итог поиска в отдельный файл."""
+        if not job_id:
+            return
+        from app.services.job_runner import search_log
+
+        current_url = getattr(driver, "current_url", "")
+        parts = [
+            f"query_name={query_name!r}",
+            f"search_value={search_value!r}",
+            f"url={current_url!r}",
+            f"page_type={page_type!r}",
+        ]
+        if product_title:
+            parts.append(f"product_title={product_title!r}")
+        if reason:
+            parts.append(f"reason={reason!r}")
+        search_log(job_id, " | ".join(parts))
+
+    search_value = (query_barcode or query_name or "").strip()
+
     try:
         if expected_dosage is None:
             expected_dosage = extract_dosage_from_text(raw_input or query_name or "")
 
-        run_search_with_retry(driver, query_name, timeout=timeout, max_retries=max_retries)
+        run_search_with_retry(driver, search_value, timeout=timeout, max_retries=max_retries)
 
         page_type = "unknown"
         if is_unexpected_error_page(driver):
@@ -1153,13 +1180,14 @@ def parse_one_query(
             page_type = "search"
 
         log_parse(
-            f"PARSE start: query={query_name!r} raw={raw_input!r} query_manufacturer={query_manufacturer!r} expected_qty={expected_qty!r} "
+            f"PARSE start: query={query_name!r} barcode={query_barcode!r} raw={raw_input!r} query_manufacturer={query_manufacturer!r} expected_qty={expected_qty!r} "
             f"expected_dosage={expected_dosage!r} "
             f"qty_is_sum={qty_is_sum!r} url={driver.current_url!r} page={page_type}"
         )
 
         if is_empty_results_page(driver):
             log_parse("PARSE context empty results page")
+            log_search_result(page_type=page_type, reason="Пустая выдача")
             return "not_found", []
         
         if is_product_page(driver):
@@ -1185,6 +1213,7 @@ def parse_one_query(
                 query_name=query_name,
                 query_raw=raw_input or query_name,
                 query_manufacturer=query_manufacturer,
+                query_barcode=query_barcode,
                 expected_qty=expected_qty,
                 expected_dosage=expected_dosage,
                 qty_is_sum=qty_is_sum,
@@ -1192,8 +1221,10 @@ def parse_one_query(
                 job_id=job_id,
             )
             if ok:
+                log_search_result(page_type=page_type, product_title=item.get("title", ""))
                 return "matched", [item]
             else:
+                log_search_result(page_type=page_type, reason=item.get("message", "Не удалось распарсить карточку"))
                 return "not_found", [item]
 
         cards = driver.find_elements(By.CSS_SELECTOR, ".catalog-card.card-flex")
@@ -1210,12 +1241,12 @@ def parse_one_query(
             f"PARSE context search: cards={len(cards)} first_title={first_title!r} first_price={first_price!r}"
         )
 
-
         items = parse_cards(
             driver,
             query_name=query_name,
             query_raw=raw_input or query_name,
             query_manufacturer=query_manufacturer,
+            query_barcode=query_barcode,
             expected_qty=expected_qty,
             expected_dosage=expected_dosage,
             qty_is_sum=qty_is_sum,
@@ -1224,11 +1255,16 @@ def parse_one_query(
         )
 
         if items:
+            log_search_result(page_type=page_type, product_title=items[0].get("title", ""))
             return "matched", items
+
+        log_search_result(page_type=page_type, reason="Подходящий товар не найден в выдаче")
         return "not_found", []
 
     except WebDriverException as e:
+        log_search_result(page_type="webdriver_error", reason=str(e))
         return "failed", []
     
-    except Exception:
+    except Exception as e:
+        log_search_result(page_type="exception", reason=str(e))
         return "failed", []
