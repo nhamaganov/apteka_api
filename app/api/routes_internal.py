@@ -3,7 +3,11 @@ from tempfile import NamedTemporaryFile
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from app.services.pharmeconom_client import PharmeconomClient, PharmeconomClientError
+from app.services.pharmeconom_client import (
+    PharmeconomClient,
+    PharmeconomClientError,
+    fetch_product_info_rows,
+)
 from app.utils.xls import extract_product_codes_from_excel
 
 router = APIRouter(prefix="/internal", tags=["internal"])
@@ -32,30 +36,10 @@ async def get_product_info_by_excel(file: UploadFile = File(...)):
             client = PharmeconomClient()
         except PharmeconomClientError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-        items: list[dict] = []
-        ok_count = 0
-        error_count = 0
-
-        for row in rows:
-            product_code = row["product_code"]
-            try:
-                api_response = client.get_product_info(product_code)
-                items.append({
-                    **row,
-                    "status": "ok",
-                    "api_response": api_response,
-                    "products": api_response.get("data", []),
-                })
-                ok_count += 1
-            except PharmeconomClientError as exc:
-                items.append({
-                    **row,
-                    "status": "error",
-                    "error": str(exc),
-                    "products": [],
-                })
-                error_count += 1
+            
+        items = fetch_product_info_rows(client, rows)
+        ok_count = sum(1 for item in items if item.get("status") == "ok")
+        error_count = sum(1 for item in items if item.get("status") == "error")
 
         return {
             "status": "ok",

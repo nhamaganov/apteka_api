@@ -1,3 +1,4 @@
+import json
 import uuid
 from pathlib import Path
 
@@ -6,11 +7,18 @@ from fastapi.responses import FileResponse
 
 from app.core.naming import make_display_name
 from app.core.storage import (
-    ensure_job_store, job_dir, log_path, result_file_path, upload_path, status_path, result_path, write_json, read_json, queries_path
+    ensure_job_store, job_dir, log_path, pharmeconom_log_path, result_file_path, upload_path, status_path, result_path, write_json, read_json, queries_path
 )
 from app.core.models import JobProgress, JobStatus
 from app.core.time import now_iso
-from app.utils.xls import extract_queries_from_excel
+from app.services.job_runner import pharmeconom_log
+from app.services.pharmeconom_client import (
+    PharmeconomClient,
+    PharmeconomClientError,
+    build_queries_from_product_info,
+    fetch_product_info_rows,
+)
+from app.utils.xls import extract_product_codes_from_excel
 
 
 router = APIRouter()
@@ -52,11 +60,26 @@ async def create_job(request: Request, file: UploadFile = File(...), city: str =
     dst.write_bytes(content)
 
     try:
-        queries = extract_queries_from_excel(str(dst))
+        rows = extract_product_codes_from_excel(str(dst))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to parse excel: {e}")
-    
-    write_json(queries_path(job_id), {"queries": queries, "city": city})
+
+    try:
+        client = PharmeconomClient()
+    except PharmeconomClientError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    product_info_items = fetch_product_info_rows(client, rows)
+    queries = build_queries_from_product_info(product_info_items)
+
+    write_json(queries_path(job_id), {"queries": queries, "city": city, "product_info": product_info_items})
+
+    for item in product_info_items:
+        if item.get("status") == "ok":
+            payload = item.get("api_response") or {}
+        else:
+            payload = {"status": "error", "error": item.get("error", "") }
+        pharmeconom_log(job_id, json.dumps(payload, ensure_ascii=False))
 
     display_name = make_display_name(file.filename)
 
@@ -134,6 +157,21 @@ def get_job_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
     except Exception:
         return {"job_id": job_id, "lines": []}
     
+    return {"job_id": job_id, "lines": lines[-tail:]}
+
+
+@router.get("/{job_id}/pharmeconom-log")
+def get_job_pharmeconom_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
+    """Возвращает последние строки отдельного лога Pharmeconom API."""
+    p = pharmeconom_log_path(job_id)
+    if not p.exists():
+        return {"job_id": job_id, "lines": []}
+
+    try:
+        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return {"job_id": job_id, "lines": []}
+
     return {"job_id": job_id, "lines": lines[-tail:]}
 
 

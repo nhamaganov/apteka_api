@@ -162,14 +162,9 @@ def extract_queries_from_excel(path: str) -> list[dict]:
         qty, qty_is_sum = extract_qty_from_xls_row(raw)
         dosage = extract_dosage_from_xls_row(raw)
 
-        manufacturer = ""
-        idx = raw.rfind(")")
-        if idx != -1:
-            manufacturer = raw[idx + 1:].strip()
-
         barcode = _normalize_barcode(df.iat[row_idx, barcode_col]) if barcode_col is not None else ""
 
-        key = (name.lower(), qty, dosage, manufacturer.lower(), barcode)
+        key = (name.lower(), qty, dosage, barcode)
         if key in seen:
             continue
         seen.add(key)
@@ -178,7 +173,6 @@ def extract_queries_from_excel(path: str) -> list[dict]:
             "name": name,
             "qty": qty,
             "dosage": dosage,
-            "manufacturer": manufacturer,
             "barcode": barcode,
             "qty_is_sum": qty_is_sum,
             "raw": raw,
@@ -315,9 +309,20 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
 
         list_start_row = header_row + 1
 
+    product_code_col: Optional[int] = None
+    try:
+        _, product_code_col = _find_product_code_column(df)
+    except ValueError:
+        product_code_col = None
+
+    by_input_product_code: dict[str, list[dict]] = {}
     by_input_name: dict[str, list[dict]] = {}
     by_input_barcode: dict[str, list[dict]] = {}
     for item in items:
+        product_code_key = str(item.get("input_product_code") or "").strip()
+        if product_code_key:
+            by_input_product_code.setdefault(product_code_key, []).append(item)
+
         key = _key(str(item.get("input_name") or ""))
         if key:
             by_input_name.setdefault(key, []).append(item)
@@ -399,7 +404,11 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         query_qty, query_qty_is_sum = extract_qty_from_xls_row(raw_text)
         query_dosage = _normalize_dosage(extract_dosage_from_xls_row(raw_text))
         query_barcode = _normalize_barcode(df.iat[r, barcode_col]) if barcode_col is not None else ""
-        candidates = by_input_barcode.get(query_barcode, []) if query_barcode else []
+        query_product_code = str(df.iat[r, product_code_col]).strip() if product_code_col is not None and not _is_empty(df.iat[r, product_code_col]) else ""
+
+        candidates = by_input_product_code.get(query_product_code, []) if query_product_code else []
+        if not candidates and query_barcode:
+            candidates = by_input_barcode.get(query_barcode, [])
         if not candidates:
             candidates = by_input_name.get(_key(query_name), [])
         if not candidates:
@@ -478,9 +487,6 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             item.get("message", ""),
         ]
 
-        manufacturer_score_match = re.search(r"\bscore\s*=\s*(\d+)\b", str(item.get("message", "")), flags=re.IGNORECASE)
-        manufacturer_score = int(manufacturer_score_match.group(1)) if manufacturer_score_match else None
-
         message_text = str(item.get("message", ""))
         message_lower = message_text.lower()
         dosage_no_data = "совпадение дозировки: нет данных" in message_lower
@@ -489,9 +495,8 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         expected_dosage = _normalize_dosage(item.get("input_dosage"))
         found_dosage = _normalize_dosage(item.get("found_dosage"))
         dosage_exact = dosage_no_data or expected_dosage is None or expected_dosage == found_dosage
-        manufacturer_exact = manufacturer_score is None or manufacturer_score > 60
 
-        if qty_sum_warning or not (dosage_exact and manufacturer_exact):
+        if qty_sum_warning or not dosage_exact:
             warning_rows.add(r)
 
     wb = Workbook()

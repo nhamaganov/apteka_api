@@ -71,6 +71,10 @@ def search_log_path(job_id: str) -> Path:
     return job_dir(job_id) / "search.log"
 
 
+def pharmeconom_log_path(job_id: str) -> Path:
+    """Возвращает путь к отдельному логу ответов Pharmeconom API."""
+    return job_dir(job_id) / "pharmeconom.log"
+
 
 def list_jobs(limit: int = 20) -> List[Dict[str, Any]]:
     """Возвращает список всех существующих парсингов"""

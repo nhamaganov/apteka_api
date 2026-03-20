@@ -66,16 +66,16 @@ def _process_job_sync(job_id: str) -> None:
                 q_dosage = None
                 q_sum = False
                 raw = q
-                q_manufacturer = ""
                 q_barcode = ""
+                q_product_code = ""
             else:
                 q_name = (q.get("name")or "").strip()
                 q_qty = q.get("qty", None)
                 q_dosage = q.get("dosage", None)
                 q_sum = bool(q.get("qty_is_sum", False))
                 raw = q.get("raw") or q.get("row") or q_name
-                q_manufacturer = (q.get("manufacturer") or "").strip()
                 q_barcode = (q.get("barcode") or "").strip()
+                q_product_code = (q.get("product_code") or "").strip()
 
             if not q_name:
                 status["progress"]["processed"] += 1
@@ -86,8 +86,8 @@ def _process_job_sync(job_id: str) -> None:
             query_parts = [f"Название: {q_name}"]
             query_parts.append(f"Кол-во: {q_qty}" if q_qty is not None else "Кол-во: —")
             query_parts.append(f"Дозировка: {q_dosage}" if q_dosage else "Дозировка: —")
-            query_parts.append(f"Производитель: {q_manufacturer}" if q_manufacturer else "Производитель: —")
             query_parts.append(f"ШК: {q_barcode}" if q_barcode else "ШК: —")
+            query_parts.append(f"Код товара: {q_product_code}" if q_product_code else "Код товара: —")
             job_log(job_id, f"Запрос: {' | '.join(query_parts)}")
 
             outcome, items = parse_one_query(
@@ -99,8 +99,8 @@ def _process_job_sync(job_id: str) -> None:
                 expected_dosage=q_dosage,
                 qty_is_sum=q_sum,
                 raw_input=raw,
-                query_manufacturer=q_manufacturer,
                 query_barcode=q_barcode,
+                query_product_code=q_product_code,
                 job_id=job_id,
             )
 
@@ -192,6 +192,17 @@ def job_log(job_id: str, msg: str) -> None:
 def search_log(job_id: str, msg: str) -> None:
     """Добавляет строку в отдельный лог поисковых переходов."""
     p = search_log_path(job_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    line = f"{datetime.now(ZoneInfo('Asia/Irkutsk')).strftime('%d-%m %H:%M:%S')} | {msg}\n"
+    with p.open("a", encoding="utf-8") as f:
+        f.write(line)
+
+
+def pharmeconom_log(job_id: str, msg: str) -> None:
+    """Добавляет строку в отдельный лог ответов Pharmeconom API."""
+    from app.core.storage import pharmeconom_log_path as _pharmeconom_log_path
+
+    p = _pharmeconom_log_path(job_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     line = f"{datetime.now(ZoneInfo('Asia/Irkutsk')).strftime('%d-%m %H:%M:%S')} | {msg}\n"
     with p.open("a", encoding="utf-8") as f:

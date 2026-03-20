@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Request, UploadFile, File, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -10,7 +12,14 @@ from app.core.storage import (
 )
 from app.core.models import JobStatus, JobProgress
 from app.core.time import now_iso
-from app.utils.xls import extract_queries_from_excel
+from app.services.job_runner import pharmeconom_log
+from app.services.pharmeconom_client import (
+    PharmeconomClient,
+    PharmeconomClientError,
+    build_queries_from_product_info,
+    fetch_product_info_rows,
+)
+from app.utils.xls import extract_product_codes_from_excel
 from app.core.naming import make_display_name
 
 
@@ -49,11 +58,26 @@ async def upload(request: Request, file: UploadFile = File(...), city: str = For
     dst.write_bytes(await file.read())
 
     try:
-        queries = extract_queries_from_excel(str(dst))
+        rows = extract_product_codes_from_excel(str(dst))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Не смог прочитать Excel: {e}")
 
-    write_json(queries_path(job_id), {"queries": queries, "city": city})
+    try:
+        client = PharmeconomClient()
+    except PharmeconomClientError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    product_info_items = fetch_product_info_rows(client, rows)
+    queries = build_queries_from_product_info(product_info_items)
+
+    write_json(queries_path(job_id), {"queries": queries, "city": city, "product_info": product_info_items})
+
+    for item in product_info_items:
+        if item.get("status") == "ok":
+            payload = item.get("api_response") or {}
+        else:
+            payload = {"status": "error", "error": item.get("error", "") }
+        pharmeconom_log(job_id, json.dumps(payload, ensure_ascii=False))
 
     display_name = make_display_name(file.filename)
 
