@@ -5,7 +5,7 @@ from typing import Dict, List
 from zoneinfo import ZoneInfo
 
 from app.core.settings import PARSE_MAX_RETRIES, PARSE_PAUSE, PARSE_TIMEOUT
-from app.core.storage import log_path, result_file_path, search_log_path, status_path, result_path, queries_path, read_json, write_json, upload_path
+from app.core.storage import log_path, normalization_log_path, result_file_path, search_log_path, status_path, result_path, queries_path, read_json, write_json, upload_path
 from app.core.queue import JobQueue
 from app.core.time import now_iso
 from app.utils.xls import build_enriched_xlsx, build_flat_xlsx
@@ -203,6 +203,15 @@ def pharmeconom_log(job_id: str, msg: str) -> None:
     from app.core.storage import pharmeconom_log_path as _pharmeconom_log_path
 
     p = _pharmeconom_log_path(job_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    line = f"{datetime.now(ZoneInfo('Asia/Irkutsk')).strftime('%d-%m %H:%M:%S')} | {msg}\n"
+    with p.open("a", encoding="utf-8") as f:
+        f.write(line)
+
+
+def normalization_log(job_id: str, msg: str) -> None:
+    """Добавляет строку в отдельный лог нормализации названий."""
+    p = normalization_log_path(job_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     line = f"{datetime.now(ZoneInfo('Asia/Irkutsk')).strftime('%d-%m %H:%M:%S')} | {msg}\n"
     with p.open("a", encoding="utf-8") as f:

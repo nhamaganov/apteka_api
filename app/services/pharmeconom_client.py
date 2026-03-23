@@ -6,9 +6,18 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from app.core.settings import PHARMECONOM_COOKIE, PHARMECONOM_TIMEOUT, PHARMECONOM_TOKEN
+from app.utils.name_patterns import apply_name_patterns
 from app.utils.xls import extract_dosage_from_xls_row, extract_qty_from_xls_row
 
 PRODUCT_INFO_PROPERTY_NAMES = "ID, NAME, PROPERTY_CML2_BAR_CODE, PROPERTY_CML2_MANUFACTURER, PROPERTY_DOSE"
+
+
+def _log_name_normalization(job_id: str | None, message: str) -> None:
+    if not job_id:
+        return
+    from app.services.job_runner import normalization_log
+
+    normalization_log(job_id, message)
 
 
 class PharmeconomClientError(RuntimeError):
@@ -88,36 +97,21 @@ def fetch_product_info_rows(client: PharmeconomClient, rows: list[dict[str, Any]
     return items
 
 
-def build_query_name_from_product_info(name: str) -> str:
+def build_query_name_from_product_info(name: str, job_id: str | None = None) -> str:
     """Нормализует название из Pharmeconom для поискового запроса."""
-    query_name = str(name or "").strip()
+    original = str(name or "").strip()
+    query_name = apply_name_patterns(str(name or "").strip())
     if not query_name:
+        _log_name_normalization(job_id, f"PHARMECONOM_QUERY raw={original!r} -> query_name=<empty>")
         return ""
 
-    replacements = [
-        (r"\b\d+(?:[.,]\d+)?\s*(?:мкг|мг|г|гр|мл|ме|iu|%)(?:\s*\+\s*\d+(?:[.,]\d+)?\s*(?:мкг|мг|г|гр|мл|ме|iu|%))*", " "),
-        (r"(?:\bN\s*|№\s*)[\d+]+\b", " "),
-        (r"\b\d+\s*шт\.?\b", " "),
-        (r"\bтаблетки\s+для\s+рассасывания\b", " "),
-        (r"\bкапсулы\b", " "),
-        (r"\bкапс\.?\b", " "),
-        (r"\bтаблетки\b", " "),
-        (r"\bтабл\.?\b", " "),
-        (r"\bдраже\b", " "),
-        (r"\bпастилки\b", " "),
-        (r"\bс\s+коллагеном\b", " "),
-        (r"\bмассой\s+\d+(?:[.,]\d+)?\s*(?:мг|г|мл)\b", " "),
-        (r"\bвкус\s+[а-яa-z0-9-]+(?:\s+[а-яa-z0-9-]+)*", " "),
-    ]
-
-    for pattern, repl in replacements:
-        query_name = re.sub(pattern, repl, query_name, flags=re.IGNORECASE)
-
+    query_name = query_name.lower().replace("ё", "е")
     query_name = re.sub(r"\s+", " ", query_name).strip(" ,.-")
+    _log_name_normalization(job_id, f"PHARMECONOM_QUERY raw={original!r} -> query_name={query_name!r}")
     return query_name or str(name).strip()
 
 
-def build_queries_from_product_info(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_queries_from_product_info(items: list[dict[str, Any]], job_id: str | None = None) -> list[dict[str, Any]]:
     """Собирает поисковые запросы из ответа Get Product Info By Excel."""
     seen: set[tuple[str, Any, str, str]] = set()
     queries: list[dict[str, Any]] = []
@@ -132,7 +126,7 @@ def build_queries_from_product_info(items: list[dict[str, Any]]) -> list[dict[st
             if not name:
                 continue
 
-            query_name = build_query_name_from_product_info(name)
+            query_name = build_query_name_from_product_info(name, job_id=job_id)
             if not query_name:
                 continue
 

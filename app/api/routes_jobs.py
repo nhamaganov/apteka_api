@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 
 from app.core.naming import make_display_name
 from app.core.storage import (
-    ensure_job_store, job_dir, log_path, pharmeconom_log_path, result_file_path, upload_path, status_path, result_path, write_json, read_json, queries_path
+    ensure_job_store, job_dir, log_path, normalization_log_path, pharmeconom_log_path, result_file_path, upload_path, status_path, result_path, write_json, read_json, queries_path
 )
 from app.core.models import JobProgress, JobStatus
 from app.core.time import now_iso
@@ -70,7 +70,7 @@ async def create_job(request: Request, file: UploadFile = File(...), city: str =
         raise HTTPException(status_code=500, detail=str(e)) from e
 
     product_info_items = fetch_product_info_rows(client, rows)
-    queries = build_queries_from_product_info(product_info_items)
+    queries = build_queries_from_product_info(product_info_items, job_id=job_id)
 
     write_json(queries_path(job_id), {"queries": queries, "city": city, "product_info": product_info_items})
 
@@ -164,6 +164,21 @@ def get_job_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
 def get_job_pharmeconom_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
     """Возвращает последние строки отдельного лога Pharmeconom API."""
     p = pharmeconom_log_path(job_id)
+    if not p.exists():
+        return {"job_id": job_id, "lines": []}
+
+    try:
+        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return {"job_id": job_id, "lines": []}
+
+    return {"job_id": job_id, "lines": lines[-tail:]}
+
+
+@router.get("/{job_id}/normalization-log")
+def get_job_normalization_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
+    """Возвращает последние строки отдельного лога нормализации названий."""
+    p = normalization_log_path(job_id)
     if not p.exists():
         return {"job_id": job_id, "lines": []}
 

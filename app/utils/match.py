@@ -2,6 +2,8 @@ import re
 
 from rapidfuzz import fuzz
 
+from app.utils.name_patterns import apply_name_patterns
+
 
 UNITS_PATTERN = r"(мг|г|гр|мкг|мл|ме|мe|me|ед|ле|le|%|iu)"
 
@@ -56,22 +58,29 @@ def normalize(s: str) -> str:
     return s
 
 
-def extract_base_name(raw: str) -> str:
-    """
-    Берём только 'название' без скобок/дозировок/упаковок.
-    Для XLS почти всегда достаточно части ДО '(' или ','.
-    """
-    s = normalize(raw)
-    s = re.split(r"[\(\,]", s, maxsplit=1)[0].strip()
+def _log_name_normalization(job_id: str | None, message: str) -> None:
+    if not job_id:
+        return
+    from app.services.job_runner import normalization_log
 
-    # прибираем числа/дозировки/единицы/упаковку
-    s = re.sub(rf"\b\d+(\.\d+)?\s*{UNITS_PATTERN}(?!\w)", " ", s)
-    s = re.sub(r"\bn\s*\d+\b", " ", s)  # n28
-    s = re.sub(r"\b\d+(\.\d+)?\b", " ", s)
-    s = re.sub(r"[+×x]", " ", s)
+    normalization_log(job_id, message)
 
+
+def normalize_product_name(raw: str, job_id: str | None = None, source: str = "") -> str:
+    """Нормализует товарное название для сравнения без удаления значимых частей."""
+    original = raw or ""
+    s = apply_name_patterns(raw)
+    s = normalize(s)
+    s = re.sub(r"[()\[\]{}]", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
+    if source:
+        _log_name_normalization(job_id, f"NORMALIZE {source}: raw={original!r} -> normalized={s!r}")
     return s
+
+
+def extract_base_name(raw: str) -> str:
+    """Совместимость со старым API: возвращает полное унифицированное название."""
+    return normalize_product_name(raw)
 
 
 def extract_lindinet_variant(raw: str) -> str | None:
@@ -186,14 +195,15 @@ def manufacturer_match_details(
 def name_match_details(
     xls_name: str,
     site_title: str,
-    min_token_set: int = 60,
-    min_partial: int = 60,
+    min_token_set: int = 70,
+    min_partial: int = 70,
+    job_id: str | None = None,
 ) -> dict:
     """
     Возвращает детальный результат сравнения названий.
     """
-    a = extract_base_name(xls_name)
-    b = extract_base_name(site_title)
+    a = normalize_product_name(xls_name, job_id=job_id, source="xls_name")
+    b = normalize_product_name(site_title, job_id=job_id, source="site_title")
 
     if not a or not b:
         return {
@@ -241,6 +251,13 @@ def name_match_details(
     token_set_score = int(round(fuzz.token_set_ratio(a, b)))
     partial_score = int(round(fuzz.partial_ratio(a, b)))
     matched = token_set_score >= min_token_set or partial_score >= min_partial
+    _log_name_normalization(
+            job_id,
+            "MATCH "
+            f"xls_raw={xls_name!r} | site_raw={site_title!r} | "
+            f"xls_normalized={a!r} | site_normalized={b!r} | "
+            f"token_set={token_set_score} | partial={partial_score} | matched={matched}",
+        )
     return {
         "matched": matched,
         "score": max(token_set_score, partial_score),
@@ -254,7 +271,8 @@ def name_match_details(
 
 def is_name_match(xls_name: str, site_title: str,
                   min_token_set: int = 70,
-                  min_partial: int = 70) -> bool:
+                  min_partial: int = 70,
+                  job_id: str | None = None) -> bool:
     """
     Нестрогое сравнение RapidFuzz, но без склейки разных препаратов:
     - используем token_set_ratio + partial_ratio
@@ -265,5 +283,6 @@ def is_name_match(xls_name: str, site_title: str,
         site_title,
         min_token_set=min_token_set,
         min_partial=min_partial,
+        job_id=job_id,
     )
     return details["matched"]

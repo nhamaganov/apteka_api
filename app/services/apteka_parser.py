@@ -859,7 +859,7 @@ def parse_product_page_one_item(
         if "набор" in title.lower():
             return False, 0.0, None, None, None, "Товар является набором и был исключён"
 
-        name_match = name_match_details(query_name, title)
+        name_match = name_match_details(query_name, title, job_id=job_id)
         if not name_match["matched"]:
             return (
                 False,
@@ -1018,7 +1018,7 @@ def parse_product_page_one_item(
     }
 
 
-def _collect_matching_card_links(driver, query_name: str) -> List[Dict[str, str]]:
+def _collect_matching_card_links(driver, query_name: str, job_id: str | None = None) -> List[Dict[str, str]]:
     """Собирает ссылки карточек, названия которых подходят по нестрогому совпадению."""
     cards = driver.find_elements(By.CSS_SELECTOR, ".catalog-card.card-flex")
     result: List[Dict[str, str]] = []
@@ -1030,7 +1030,7 @@ def _collect_matching_card_links(driver, query_name: str) -> List[Dict[str, str]
             if not title or "набор" in title.lower():
                 continue
 
-            if not is_name_match(query_name, title):
+            if not is_name_match(query_name, title, job_id=job_id):
                 continue
 
             href = ""
@@ -1077,7 +1077,7 @@ def parse_cards(
         job_log(job_id, msg)
 
     search_url = driver.current_url
-    candidates = _collect_matching_card_links(driver, query_name)
+    candidates = _collect_matching_card_links(driver, query_name, job_id=job_id)
     log_parse(f"PARSE search candidates={len(candidates)}")
 
     rejection_reasons: list[str] = []
