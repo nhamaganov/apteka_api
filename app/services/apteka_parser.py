@@ -6,7 +6,7 @@ import random
 import re
 import time
 from typing import List, Dict, Optional, Tuple, Literal
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -17,7 +17,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, WebDriverException
 
-from app.utils.match import is_name_match, normalize
+from app.utils.match import is_name_match, name_match_details, normalize
 
 
 Outcome = Literal["matched", "not_found", "failed"]
@@ -551,6 +551,7 @@ class Variant:
     href: str
     selected: bool
     dosage: Optional[str] = None
+    title: str = ""
 
 
 def normalize_dosage(raw: Optional[str]) -> Optional[str]:
@@ -642,6 +643,7 @@ def get_variants_from_product_page(driver) -> List[Variant]:
     Если блока вариантов нет — вернёт [].
     """
     variants: List[Variant] = []
+    current_url = getattr(driver, "current_url", "") or "https://apteka.ru/"
 
     levels = driver.find_elements(By.CSS_SELECTOR, ".ProductVariants__level")
     if levels:
@@ -650,7 +652,9 @@ def get_variants_from_product_page(driver) -> List[Variant]:
             try:
                 label_b = level.find_elements(By.CSS_SELECTOR, ".ProductVariants__levelLabel b")
                 if label_b:
-                    level_dosage = normalize_dosage(label_b[0].text or "")
+                    label_text = (label_b[0].text or "").strip()
+                    if "доступные варианты" not in label_text.lower():
+                        level_dosage = normalize_dosage(label_text)
             except Exception:
                 level_dosage = None
 
@@ -678,9 +682,17 @@ def get_variants_from_product_page(driver) -> List[Variant]:
                     link = btn.find_elements(By.CSS_SELECTOR, "a.variantButton__link[href]")
                     if not link:
                         continue
-                    href = link[0].get_attribute("href")
+                    href = urljoin(current_url, link[0].get_attribute("href") or "")
+                    if not href:
+                        continue
 
-                    variants.append(Variant(qty=qty, href=href, selected=selected, dosage=level_dosage))
+                    title = (
+                        link[0].get_attribute("aria-label")
+                        or link[0].get_attribute("title")
+                        or ""
+                    ).strip()
+
+                    variants.append(Variant(qty=qty, href=href, selected=selected, dosage=level_dosage, title=title))
 
                 except StaleElementReferenceException:
                     continue
@@ -711,9 +723,17 @@ def get_variants_from_product_page(driver) -> List[Variant]:
                 link = btn.find_elements(By.CSS_SELECTOR, "a.variantButton__link[href]")
                 if not link:
                     continue
-                href = link[0].get_attribute("href")
+                href = urljoin(current_url, link[0].get_attribute("href") or "")
+                if not href:
+                    continue
 
-                variants.append(Variant(qty=qty, href=href, selected=selected, dosage=None))
+                title = (
+                    link[0].get_attribute("aria-label")
+                    or link[0].get_attribute("title")
+                    or ""
+                ).strip()
+
+                variants.append(Variant(qty=qty, href=href, selected=selected, dosage=None, title=title))
 
             except StaleElementReferenceException:
                 continue
@@ -839,8 +859,16 @@ def parse_product_page_one_item(
         if "набор" in title.lower():
             return False, 0.0, None, None, None, "Товар является набором и был исключён"
 
-        if not is_name_match(query_name, title):
-            return False, 0.0, None, None, None, f"Название {title!r} не совпало с запросом"
+        name_match = name_match_details(query_name, title)
+        if not name_match["matched"]:
+            return (
+                False,
+                0.0,
+                None,
+                None,
+                None,
+                f"Название {title!r} не совпало с запросом | {name_match['score']}%",
+            )
 
         found_brand = _get_product_brand(driver)
 
@@ -940,44 +968,32 @@ def parse_product_page_one_item(
     consider_current_page()
 
     visited_hrefs = {_normalized_product_url(driver.current_url)}
-    buttons = driver.find_elements(By.CSS_SELECTOR, ".ProductVariants .variantButton")
+    variants = get_variants_from_product_page(driver)
 
-    for idx in range(len(buttons)):
-        buttons = driver.find_elements(By.CSS_SELECTOR, ".ProductVariants .variantButton")
-        if idx >= len(buttons):
-            break
-
-        btn = buttons[idx]
+    for idx, variant in enumerate(variants, start=1):
         try:
-            href_els = btn.find_elements(By.CSS_SELECTOR, "a.variantButton__link[href]")
-            href = href_els[0].get_attribute("href") if href_els else ""
-            href_norm = _normalized_product_url(href) if href else ""
-            if href_norm and href_norm in visited_hrefs:
+            href_norm = _normalized_product_url(variant.href) if variant.href else ""
+            if not href_norm or href_norm in visited_hrefs:
                 continue
 
-            target = href_els[0] if href_els else btn
-            old_title = read_product_title()
-            old_url = _normalized_product_url(driver.current_url)
+            log_parse(
+                f"PARSE product variant[{idx}] open href={variant.href!r} "
+                f"title={variant.title!r} qty={variant.qty!r} dosage={variant.dosage!r}"
+            )
 
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", target)
-            driver.execute_script("arguments[0].click();", target)
+            driver.get(variant.href)
+            find_visible(driver, By.CSS_SELECTOR, "h1.ViewProductPage__title", timeout=timeout)
 
-            end = time.time() + timeout
-            while time.time() < end:
-                curr_url = _normalized_product_url(driver.current_url)
-                title_nodes = driver.find_elements(By.CSS_SELECTOR, "h1.ViewProductPage__title")
-                curr_title = (title_nodes[0].text or "").strip() if title_nodes else ""
-                if curr_title and (curr_title != old_title or curr_url != old_url):
-                    break
-                time.sleep(0.2)
-
-            if href_norm:
-                visited_hrefs.add(href_norm)
+            visited_hrefs.add(href_norm)
             visited_hrefs.add(_normalized_product_url(driver.current_url))
 
             consider_current_page()
 
-        except Exception:
+        except Exception as e:
+            log_parse(
+                f"PARSE product variant[{idx}] failed href={variant.href!r} "
+                f"title={variant.title!r} error={e!r}"
+            )
             continue
 
     if best_item is not None:
@@ -1218,9 +1234,8 @@ def parse_one_query(
             if ok:
                 log_search_result(page_type=page_type, product_title=item.get("title", ""))
                 return "matched", [item]
-            else:
-                log_search_result(page_type=page_type, reason=item.get("message", "Не удалось распарсить карточку"))
-                return "not_found", [item]
+            log_search_result(page_type=page_type, reason=item.get("message", "Не удалось распарсить карточку"))
+            return "not_found", [item]
 
         cards = driver.find_elements(By.CSS_SELECTOR, ".catalog-card.card-flex")
         first_title = get_first_card_title(driver)

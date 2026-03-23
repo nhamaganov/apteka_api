@@ -183,37 +183,87 @@ def manufacturer_match_details(
     }
 
 
-def is_name_match(xls_name: str, site_title: str,
-                  min_token_set: int = 93,
-                  min_partial: int = 95) -> bool:
+def name_match_details(
+    xls_name: str,
+    site_title: str,
+    min_token_set: int = 60,
+    min_partial: int = 60,
+) -> dict:
     """
-    Нестрогое сравнение RapidFuzz, но без склейки разных препаратов:
-    - используем token_set_ratio + partial_ratio
-    - блокируем совпадения, если на сайте есть модификатор (микро/плюс/форте...), а в запросе его нет
+    Возвращает детальный результат сравнения названий.
     """
     a = extract_base_name(xls_name)
     b = extract_base_name(site_title)
 
     if not a or not b:
-        return False
+        return {
+            "matched": False,
+            "score": 0,
+            "token_set_score": 0,
+            "partial_score": 0,
+            "reason": "empty_name",
+            "query_normalized": a,
+            "site_normalized": b,
+        }
 
     lindinet_xls = extract_lindinet_variant(xls_name)
     lindinet_site = extract_lindinet_variant(site_title)
     if lindinet_xls is not None or lindinet_site is not None:
-        return lindinet_xls is not None and lindinet_xls == lindinet_site
+        matched = lindinet_xls is not None and lindinet_xls == lindinet_site
+        return {
+            "matched": matched,
+            "score": 100 if matched else 0,
+            "token_set_score": 100 if matched else 0,
+            "partial_score": 100 if matched else 0,
+            "reason": "lindinet_variant_match" if matched else "lindinet_variant_mismatch",
+            "query_normalized": a,
+            "site_normalized": b,
+        }
 
     a_tokens = set(a.split())
     b_tokens = set(b.split())
 
-    # защита от "анжелик" vs "анжелик микро"
     a_mod = modifiers(a_tokens)
     b_mod = modifiers(b_tokens)
     if b_mod and not b_mod.issubset(a_mod):
-        return False
+        token_set_score = int(round(fuzz.token_set_ratio(a, b)))
+        partial_score = int(round(fuzz.partial_ratio(a, b)))
+        return {
+            "matched": False,
+            "score": max(token_set_score, partial_score),
+            "token_set_score": token_set_score,
+            "partial_score": partial_score,
+            "reason": "modifier_mismatch",
+            "query_normalized": a,
+            "site_normalized": b,
+        }
 
-    score1 = fuzz.token_set_ratio(a, b)   # 0..100
-    if score1 >= min_token_set:
-        return True
+    token_set_score = int(round(fuzz.token_set_ratio(a, b)))
+    partial_score = int(round(fuzz.partial_ratio(a, b)))
+    matched = token_set_score >= min_token_set or partial_score >= min_partial
+    return {
+        "matched": matched,
+        "score": max(token_set_score, partial_score),
+        "token_set_score": token_set_score,
+        "partial_score": partial_score,
+        "reason": "ok" if matched else "below_threshold",
+        "query_normalized": a,
+        "site_normalized": b,
+    }
 
-    score2 = fuzz.partial_ratio(a, b)
-    return score2 >= min_partial
+
+def is_name_match(xls_name: str, site_title: str,
+                  min_token_set: int = 70,
+                  min_partial: int = 70) -> bool:
+    """
+    Нестрогое сравнение RapidFuzz, но без склейки разных препаратов:
+    - используем token_set_ratio + partial_ratio
+    - блокируем совпадения, если на сайте есть модификатор (микро/плюс/форте...), а в запросе его нет
+    """
+    details = name_match_details(
+        xls_name,
+        site_title,
+        min_token_set=min_token_set,
+        min_partial=min_partial,
+    )
+    return details["matched"]
