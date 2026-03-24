@@ -907,10 +907,11 @@ def parse_product_page_one_item(
                 dosage_note = "Совпадение дозировки: частично"
             elif found_dosage is None:
                 dosage_score = 0.4
-                dosage_note = "Совпадение дозировки: нет данных"
+                dosage_note = f"Совпадение дозировки: нет данных, ожидалось {normalized_expected_dosage}, найдено —"
             else:
                 dosage_score = 0.0
-                dosage_note = "Совпадение дозировки: нет"
+                dosage_note = f"Совпадение дозировки: нет, ожидалось {normalized_expected_dosage}, найдено {found_dosage}"
+
             notes.append(dosage_note)
             criteria_scores.append(dosage_score)
 
