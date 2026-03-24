@@ -132,6 +132,7 @@ def build_queries_from_product_info(items: list[dict[str, Any]], job_id: str | N
 
             dose = str(product.get("PROPERTY_DOSE") or "").strip()
             barcode = str(product.get("PROPERTY_CML2_BAR_CODE") or "").strip()
+            manufacturer = str(product.get("PROPERTY_CML2_MANUFACTURER") or "").strip()
             qty, qty_is_sum = extract_qty_from_xls_row(name)
             dosage = dose or extract_dosage_from_xls_row(name)
             raw = name
@@ -146,6 +147,7 @@ def build_queries_from_product_info(items: list[dict[str, Any]], job_id: str | N
                 "qty": qty,
                 "dosage": dosage,
                 "barcode": barcode,
+                "manufacturer": manufacturer,
                 "qty_is_sum": qty_is_sum,
                 "raw": raw,
                 "row": raw,

@@ -8,6 +8,7 @@ from app.core.settings import PARSE_MAX_RETRIES, PARSE_PAUSE, PARSE_TIMEOUT
 from app.core.storage import log_path, normalization_log_path, result_file_path, search_log_path, status_path, result_path, queries_path, read_json, write_json, upload_path
 from app.core.queue import JobQueue
 from app.core.time import now_iso
+from app.utils.match import extract_query_manufacturer
 from app.utils.xls import build_enriched_xlsx, build_flat_xlsx
 from app.services.apteka_parser import make_driver, recover_to_home, close_modal_if_any, parse_one_query, select_city
 
@@ -68,6 +69,7 @@ def _process_job_sync(job_id: str) -> None:
                 raw = q
                 q_barcode = ""
                 q_product_code = ""
+                q_manufacturer = extract_query_manufacturer(str(raw or ""))
             else:
                 q_name = (q.get("name")or "").strip()
                 q_qty = q.get("qty", None)
@@ -76,6 +78,9 @@ def _process_job_sync(job_id: str) -> None:
                 raw = q.get("raw") or q.get("row") or q_name
                 q_barcode = (q.get("barcode") or "").strip()
                 q_product_code = (q.get("product_code") or "").strip()
+                q_manufacturer = (q.get("manufacturer") or "").strip()
+                if not q_manufacturer:
+                    q_manufacturer = extract_query_manufacturer(str(raw or ""))
 
             if not q_name:
                 status["progress"]["processed"] += 1
@@ -86,6 +91,7 @@ def _process_job_sync(job_id: str) -> None:
             query_parts = [f"Название: {q_name}"]
             query_parts.append(f"Кол-во: {q_qty}" if q_qty is not None else "Кол-во: —")
             query_parts.append(f"Дозировка: {q_dosage}" if q_dosage else "Дозировка: —")
+            query_parts.append(f"Производитель: {q_manufacturer}" if q_manufacturer else "Производитель: —")
             query_parts.append(f"ШК: {q_barcode}" if q_barcode else "ШК: —")
             query_parts.append(f"Код товара: {q_product_code}" if q_product_code else "Код товара: —")
             job_log(job_id, f"Запрос: {' | '.join(query_parts)}")
@@ -101,6 +107,7 @@ def _process_job_sync(job_id: str) -> None:
                 raw_input=raw,
                 query_barcode=q_barcode,
                 query_product_code=q_product_code,
+                query_manufacturer=q_manufacturer,
                 job_id=job_id,
             )
 
@@ -109,11 +116,22 @@ def _process_job_sync(job_id: str) -> None:
                 return
 
             found_title = "Не найдено"
+            found_brand = ""
+            found_message = ""
             if outcome == "matched" and items:
                 first_title = (items[0].get("title") or "").strip()
                 if first_title:
                     found_title = first_title
-            job_log(job_id, f"Найдено: {found_title}")
+                found_brand = (items[0].get("found_brand") or "").strip()
+                found_message = (items[0].get("message") or "").strip()
+            if found_brand and found_message:
+                job_log(job_id, f"Найдено: {found_title} | Производитель: {found_brand} | Детали: {found_message}")
+            elif found_brand:
+                job_log(job_id, f"Найдено: {found_title} | Производитель: {found_brand}")
+            elif found_message:
+                job_log(job_id, f"Найдено: {found_title} | Детали: {found_message}")
+            else:
+                job_log(job_id, f"Найдено: {found_title}")
             if outcome == "matched":
                 status["progress"]["matched"] += 1
                 all_items.extend(items)

@@ -17,7 +17,12 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, WebDriverException
 
-from app.utils.match import is_name_match, name_match_details, normalize
+from app.utils.match import (
+    is_name_match,
+    manufacturer_match_details,
+    name_match_details,
+    normalize,
+)
 
 
 Outcome = Literal["matched", "not_found", "failed"]
@@ -798,6 +803,7 @@ def parse_product_page_one_item(
     expected_qty: Optional[int],
     expected_dosage: Optional[str],
     qty_is_sum: bool,
+    query_manufacturer: str = "",
     query_barcode: str = "",
     query_product_code: str = "",
     timeout: int = 6,
@@ -859,18 +865,35 @@ def parse_product_page_one_item(
         if "набор" in title.lower():
             return False, 0.0, None, None, None, "Товар является набором и был исключён"
 
+        found_brand = _get_product_brand(driver)
         name_match = name_match_details(query_name, title, job_id=job_id)
+        name_score_note = (
+            f"Score названия: {name_match['score']}% "
+            f"(token_set={name_match['token_set_score']}%, partial={name_match['partial_score']}%)"
+        )
+
+        manufacturer_match = manufacturer_match_details(
+            query_raw=query_raw,
+            site_brand=found_brand or "",
+            query_manufacturer=query_manufacturer,
+        )
+        if manufacturer_match["reason"] == "query_manufacturer_empty":
+            manufacturer_score_note = "Score производителя: — (в запросе не указан)"
+        else:
+            manufacturer_score_note = (
+                f"Score производителя: {manufacturer_match['score']}% "
+                f"(порог={manufacturer_match['threshold']}%)"
+            )
+
         if not name_match["matched"]:
             return (
                 False,
                 0.0,
                 None,
                 None,
-                None,
-                f"Название {title!r} не совпало с запросом | {name_match['score']}%",
+                found_brand,
+                f"Название {title!r} не совпало с запросом | {name_score_note} | {manufacturer_score_note}",
             )
-
-        found_brand = _get_product_brand(driver)
 
         found_qty = extract_pack_qty_from_title(title)
         if found_qty is None:
@@ -888,6 +911,8 @@ def parse_product_page_one_item(
 
         criteria_scores: list[float] = []
         notes: list[str] = []
+        notes.append(name_score_note)
+        notes.append(manufacturer_score_note)
 
         if expected_qty is not None:
             if found_qty != expected_qty:
@@ -914,6 +939,12 @@ def parse_product_page_one_item(
 
             notes.append(dosage_note)
             criteria_scores.append(dosage_score)
+  
+        if manufacturer_match["reason"] != "query_manufacturer_empty":
+            manufacturer_score = manufacturer_match["score"] / 100.0
+            manufacturer_note = f"Совпадение производителя: {'да' if manufacturer_match['matched'] else 'нет'}"
+            notes.append(manufacturer_note)
+            criteria_scores.append(manufacturer_score)
 
         if not criteria_scores:
             score = 1.0
@@ -945,6 +976,7 @@ def parse_product_page_one_item(
             "input_dosage": normalized_expected_dosage,
             "found_qty": found_qty,
             "found_dosage": found_dosage,
+            "found_brand": found_brand,
             "message": message,
         }
 
@@ -1058,6 +1090,7 @@ def parse_cards(
     driver,
     query_name: str,
     query_raw: str,
+    query_manufacturer: str,
     expected_qty: Optional[int],
     expected_dosage: Optional[str],
     qty_is_sum: bool,
@@ -1098,6 +1131,7 @@ def parse_cards(
                     driver,
                     query_name=query_name,
                     query_raw=query_raw,
+                    query_manufacturer=query_manufacturer,
                     query_barcode=query_barcode,
                     query_product_code=query_product_code,
                     expected_qty=expected_qty,
@@ -1144,6 +1178,7 @@ def parse_one_query(
     raw_input: Optional[str] = None,
     query_barcode: str = "",
     query_product_code: str = "",
+    query_manufacturer: str = "",
     job_id: Optional[str] = None,
 ) -> Tuple[Outcome, List[Dict]]:
     """Парсит один запрос и возвращает результат с найденными позициями."""
@@ -1193,7 +1228,7 @@ def parse_one_query(
 
         log_parse(
             f"PARSE start: query={query_name!r} barcode={query_barcode!r} product_code={query_product_code!r} raw={raw_input!r} expected_qty={expected_qty!r} "
-            f"expected_dosage={expected_dosage!r} "
+            f"expected_dosage={expected_dosage!r} query_manufacturer={query_manufacturer!r} "
             f"qty_is_sum={qty_is_sum!r} url={driver.current_url!r} page={page_type}"
         )
 
@@ -1224,6 +1259,7 @@ def parse_one_query(
                 driver,
                 query_name=query_name,
                 query_raw=raw_input or query_name,
+                query_manufacturer=query_manufacturer,
                 query_barcode=query_barcode,
                 query_product_code=query_product_code,
                 expected_qty=expected_qty,
@@ -1256,6 +1292,7 @@ def parse_one_query(
             driver,
             query_name=query_name,
             query_raw=raw_input or query_name,
+            query_manufacturer=query_manufacturer,
             query_barcode=query_barcode,
             query_product_code=query_product_code,
             expected_qty=expected_qty,
