@@ -869,7 +869,8 @@ def parse_product_page_one_item(
         name_match = name_match_details(query_name, title, job_id=job_id)
         name_score_note = (
             f"Score названия: {name_match['score']}% "
-            f"(token_set={name_match['token_set_score']}%, partial={name_match['partial_score']}%)"
+            f"(token_set={name_match['token_set_score']}%, partial={name_match['partial_score']}%) "
+            f"[query_norm={name_match['query_normalized']!r}, site_norm={name_match['site_normalized']!r}]"
         )
 
         manufacturer_match = manufacturer_match_details(
@@ -882,7 +883,8 @@ def parse_product_page_one_item(
         else:
             manufacturer_score_note = (
                 f"Score производителя: {manufacturer_match['score']}% "
-                f"(порог={manufacturer_match['threshold']}%)"
+                f"(порог={manufacturer_match['threshold']}%) "
+                f"[query={manufacturer_match['query_compared']!r}, site={manufacturer_match['site_compared']!r}]"
             )
 
         if not name_match["matched"]:
@@ -893,6 +895,19 @@ def parse_product_page_one_item(
                 None,
                 found_brand,
                 f"Название {title!r} не совпало с запросом | {name_score_note} | {manufacturer_score_note}",
+            )
+
+        if (
+            manufacturer_match["reason"] != "query_manufacturer_empty"
+            and not manufacturer_match["matched"]
+        ):
+            return (
+                False,
+                0.0,
+                None,
+                None,
+                found_brand,
+                f"Производитель {found_brand!r} не совпал с запросом | {manufacturer_score_note}",
             )
 
         found_qty = extract_pack_qty_from_title(title)
@@ -977,6 +992,7 @@ def parse_product_page_one_item(
             "found_qty": found_qty,
             "found_dosage": found_dosage,
             "found_brand": found_brand,
+            "href": driver.current_url,
             "message": message,
         }
 
@@ -991,12 +1007,25 @@ def parse_product_page_one_item(
         if not ok:
             rejection_reason = note or f"Вариант {title!r} не прошёл проверку"
             rejection_reasons.append(rejection_reason)
-            log_parse(f"PARSE product variant rejected: title={title!r} reason={rejection_reason!r}")
+            log_parse(
+                "PARSE product variant rejected: "
+                f"reason={rejection_reason!r} | title={title!r} | found_qty={found_qty!r} | expected_qty={expected_qty!r} "
+                f"| found_dosage={found_dosage!r} | expected_dosage={normalized_expected_dosage!r} "
+                f"| found_brand={found_brand!r} | query_manufacturer={query_manufacturer!r} "
+                f"| href={driver.current_url!r}"
+            )
             return
 
         if score > best_score:
             best_score = score
             best_item = build_item(title, found_qty, found_dosage, found_brand, note)
+            log_parse(
+                "PARSE product variant accepted: "
+                f"title={title!r} | found_qty={found_qty!r} | expected_qty={expected_qty!r} "
+                f"| found_dosage={found_dosage!r} | expected_dosage={normalized_expected_dosage!r} "
+                f"| found_brand={found_brand!r} | query_manufacturer={query_manufacturer!r} "
+                f"| score={score:.3f} | details={note!r} | href={driver.current_url!r}"
+            )
 
     consider_current_page()
 
@@ -1010,8 +1039,8 @@ def parse_product_page_one_item(
                 continue
 
             log_parse(
-                f"PARSE product variant[{idx}] open href={variant.href!r} "
-                f"title={variant.title!r} qty={variant.qty!r} dosage={variant.dosage!r}"
+                f"PARSE product variant[{idx}] open title={variant.title!r} "
+                f"qty={variant.qty!r} dosage={variant.dosage!r} href={variant.href!r}"
             )
 
             driver.get(variant.href)
@@ -1024,8 +1053,8 @@ def parse_product_page_one_item(
 
         except Exception as e:
             log_parse(
-                f"PARSE product variant[{idx}] failed href={variant.href!r} "
-                f"title={variant.title!r} error={e!r}"
+                f"PARSE product variant[{idx}] failed title={variant.title!r} "
+                f"error={e!r} href={variant.href!r}"
             )
             continue
 
@@ -1147,12 +1176,13 @@ def parse_cards(
                 candidate_reason = item.get("message", "Не удалось распарсить карточку")
                 rejection_reasons.append(f"{title}: {candidate_reason}")
                 log_parse(
-                    f"PARSE search candidate[{idx}] not matched: message={candidate_reason!r}"
+                    f"PARSE search candidate[{idx}] not matched: title={title!r} "
+                    f"message={candidate_reason!r} href={href!r}"
                 )
 
         except Exception as e:
             rejection_reasons.append(f"{title}: ошибка открытия карточки: {e}")
-            log_parse(f"PARSE search candidate[{idx}] failed: {e}")
+            log_parse(f"PARSE search candidate[{idx}] failed: title={title!r} error={e!r} href={href!r}")
 
         # Возвращаемся к поисковой выдаче и продолжаем со следующей карточки.
         driver.get(search_url)

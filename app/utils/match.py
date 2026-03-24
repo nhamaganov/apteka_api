@@ -11,7 +11,7 @@ MODIFIERS = {"микро", "плюс", "мини", "форте", "экстра",
 
 MANUFACTURER_NOISE_WORDS = {
     "ооо", "оао", "зао", "пао", "ао", "ип", "inc", "llc", "ltd", "gmbh", "ag",
-    "co", "corp", "company", "sa", "srl", "plc", "фарма", "pharma", "фарм",
+    "co", "corp", "company", "sa", "srl", "plc", "kg", "kgaa", "фарма", "pharma", "фарм",
 }
 
 COUNTRY_WORDS = {
@@ -122,6 +122,68 @@ def _transliterate_cyr_to_latin(s: str) -> str:
     return s.translate(_CYR_TO_LAT)
 
 
+def _transliterate_latin_to_cyr(s: str) -> str:
+    # Порядок замен важен: сначала длинные сочетания.
+    pairs = [
+        ("sch", "щ"),
+        ("sh", "ш"),
+        ("ch", "ч"),
+        ("zh", "ж"),
+        ("kh", "х"),
+        ("ts", "ц"),
+        ("yu", "ю"),
+        ("ya", "я"),
+        ("yo", "ё"),
+        ("ye", "е"),
+        ("ei", "ай"),
+        ("ey", "ей"),
+        ("qu", "кв"),
+        ("ph", "ф"),
+        ("w", "в"),
+        ("x", "кс"),
+        ("a", "а"),
+        ("b", "б"),
+        ("c", "к"),
+        ("d", "д"),
+        ("e", "е"),
+        ("f", "ф"),
+        ("g", "г"),
+        ("h", "х"),
+        ("i", "и"),
+        ("j", "й"),
+        ("k", "к"),
+        ("l", "л"),
+        ("m", "м"),
+        ("n", "н"),
+        ("o", "о"),
+        ("p", "п"),
+        ("q", "к"),
+        ("r", "р"),
+        ("s", "с"),
+        ("t", "т"),
+        ("u", "у"),
+        ("v", "в"),
+        ("y", "й"),
+        ("z", "з"),
+    ]
+    out = s
+    for frm, to in pairs:
+        out = out.replace(frm, to)
+    return out
+
+
+def _latin_pronounce_normalize(s: str) -> str:
+    out = s
+    out = re.sub(r"\bqu", "kv", out)
+    out = out.replace("ph", "f")
+    out = out.replace("w", "v")
+    out = out.replace("x", "ks")
+    out = re.sub(r"ei", "ay", out)
+    out = re.sub(r"y", "i", out)
+    out = re.sub(r"\s+", " ", out).strip()
+    return out
+
+
 def manufacturer_match_details(
     query_raw: str,
     site_brand: str,
@@ -169,14 +231,33 @@ def manufacturer_match_details(
     actual_has_lat = _contains_latin(actual)
 
     mixed_alphabet = (expected_has_cyr and actual_has_lat) or (expected_has_lat and actual_has_cyr)
-    if mixed_alphabet:
-        expected_cmp = _transliterate_cyr_to_latin(expected)
-        actual_cmp = _transliterate_cyr_to_latin(actual)
-    else:
-        expected_cmp = expected
-        actual_cmp = actual
 
-    score = int(round(fuzz.token_set_ratio(expected_cmp, actual_cmp)))
+    expected_cmp = expected
+    actual_cmp = actual
+    best_score = int(round(fuzz.token_set_ratio(expected_cmp, actual_cmp)))
+
+    def maybe_update_best(lhs: str, rhs: str) -> None:
+        nonlocal best_score, expected_cmp, actual_cmp
+        if not lhs or not rhs:
+            return
+        candidate = int(round(fuzz.token_set_ratio(lhs, rhs)))
+        if candidate > best_score:
+            best_score = candidate
+            expected_cmp = lhs
+            actual_cmp = rhs
+
+    if mixed_alphabet:
+        # 1) Базовая текущая стратегия: перевод обеих строк в латиницу.
+        maybe_update_best(_transliterate_cyr_to_latin(expected), _transliterate_cyr_to_latin(actual))
+        # 2) Альтернативная стратегия: перевод обеих строк в кириллицу.
+        maybe_update_best(_transliterate_latin_to_cyr(expected), _transliterate_latin_to_cyr(actual))
+        # 3) Фонетическая нормализация латиницы для сложных кейсов (Queisser vs Квайссер).
+        maybe_update_best(
+            _latin_pronounce_normalize(_transliterate_cyr_to_latin(expected)),
+            _latin_pronounce_normalize(_transliterate_cyr_to_latin(actual)),
+        )
+
+    score = best_score
     return {
         "matched": score >= min_score,
         "score": score,

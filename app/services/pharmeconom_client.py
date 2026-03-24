@@ -135,7 +135,7 @@ def build_queries_from_product_info(items: list[dict[str, Any]], job_id: str | N
             manufacturer = str(product.get("PROPERTY_CML2_MANUFACTURER") or "").strip()
             qty, qty_is_sum = extract_qty_from_xls_row(name)
             dosage = dose or extract_dosage_from_xls_row(name)
-            raw = name
+            raw = str(item.get("name") or "").strip() or name
 
             key = (query_name.lower(), qty, (dosage or "").lower(), barcode)
             if key in seen:

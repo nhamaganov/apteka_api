@@ -89,6 +89,7 @@ def _process_job_sync(job_id: str) -> None:
                 continue
 
             query_parts = [f"Название: {q_name}"]
+            query_parts.append(f"RAW: {raw}" if raw else "RAW: —")
             query_parts.append(f"Кол-во: {q_qty}" if q_qty is not None else "Кол-во: —")
             query_parts.append(f"Дозировка: {q_dosage}" if q_dosage else "Дозировка: —")
             query_parts.append(f"Производитель: {q_manufacturer}" if q_manufacturer else "Производитель: —")
@@ -118,18 +119,30 @@ def _process_job_sync(job_id: str) -> None:
             found_title = "Не найдено"
             found_brand = ""
             found_message = ""
+            found_qty = None
+            found_dosage = ""
+            found_href = ""
             if outcome == "matched" and items:
                 first_title = (items[0].get("title") or "").strip()
                 if first_title:
                     found_title = first_title
                 found_brand = (items[0].get("found_brand") or "").strip()
                 found_message = (items[0].get("message") or "").strip()
-            if found_brand and found_message:
-                job_log(job_id, f"Найдено: {found_title} | Производитель: {found_brand} | Детали: {found_message}")
-            elif found_brand:
-                job_log(job_id, f"Найдено: {found_title} | Производитель: {found_brand}")
-            elif found_message:
-                job_log(job_id, f"Найдено: {found_title} | Детали: {found_message}")
+                found_qty = items[0].get("found_qty")
+                found_dosage = (items[0].get("found_dosage") or "").strip()
+                found_href = (items[0].get("href") or "").strip()
+            if outcome == "matched":
+                details_parts = [
+                    f"Найдено: {found_title}",
+                    f"Кол-во: {found_qty if found_qty is not None else '—'} (ожидалось: {q_qty if q_qty is not None else '—'})",
+                    f"Дозировка: {found_dosage or '—'} (ожидалось: {q_dosage or '—'})",
+                    f"Производитель: {found_brand or '—'} (ожидалось: {q_manufacturer or '—'})",
+                ]
+                if found_message:
+                    details_parts.append(f"Детали: {found_message}")
+                if found_href:
+                    details_parts.append(f"href: {found_href}")
+                job_log(job_id, " | ".join(details_parts))
             else:
                 job_log(job_id, f"Найдено: {found_title}")
             if outcome == "matched":
