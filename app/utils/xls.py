@@ -746,6 +746,21 @@ def extract_qty_from_xls_row(text: str) -> Tuple[Optional[int], bool]:
     if not text:
         return None, False
 
+    normalized_text = str(text).lower().replace("ё", "е")
+
+    # Специальный кейс для Видора микро: упаковки вида "21 шт.+7" и "24 шт.+4"
+    # должны учитываться суммарно (21+7=28, 24+4=28), иначе такие позиции
+    # ошибочно отбрасываются при сравнении с карточкой товара на сайте (28 шт.).
+    if "видора микро" in normalized_text:
+        special_match = re.search(
+            r"\b(\d+)\s*шт\.?\s*\+\s*(\d+)\b",
+            normalized_text,
+            flags=re.IGNORECASE,
+        )
+        if special_match:
+            return int(special_match.group(1)) + int(special_match.group(2)), True
+
+
     m = re.search(r"(?:\bN\s*|№\s*)([\d+]+)\b", text, flags=re.IGNORECASE)
     if not m:
         m = re.search(
