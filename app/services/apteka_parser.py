@@ -552,7 +552,7 @@ def run_search_with_retry(driver, query, timeout, max_retries) -> None:
 
 @dataclass
 class Variant:
-    qty: int
+    qty: Optional[int]
     href: str
     selected: bool
     dosage: Optional[str] = None
@@ -623,22 +623,19 @@ def extract_dosage_from_text(text: str) -> Optional[str]:
 
 
 def is_dosage_compatible(expected: Optional[str], found: Optional[str]) -> bool:
-    """Проверяет, совместимы ли дозировки на уровне компонентов."""
+    """Проверяет, что ожидаемая дозировка полностью входит в найденную."""
     expected_norm = normalize_dosage(expected)
     found_norm = normalize_dosage(found)
 
     if expected_norm is None or found_norm is None:
         return False
 
-    if expected_norm == found_norm:
-        return True
-
     expected_parts = set(expected_norm.split(" + "))
     found_parts = set(found_norm.split(" + "))
     if not expected_parts or not found_parts:
         return False
 
-    return bool(expected_parts & found_parts)
+    return expected_parts.issubset(found_parts)
 
 
 def get_variants_from_product_page(driver) -> List[Variant]:
@@ -681,9 +678,6 @@ def get_variants_from_product_page(driver) -> List[Variant]:
                         if m:
                             qty = int(m.group(1))
 
-                    if qty is None:
-                        continue
-
                     link = btn.find_elements(By.CSS_SELECTOR, "a.variantButton__link[href]")
                     if not link:
                         continue
@@ -696,6 +690,13 @@ def get_variants_from_product_page(driver) -> List[Variant]:
                         or link[0].get_attribute("title")
                         or ""
                     ).strip()
+
+                    if qty is None:
+                        qty = extract_pack_qty_from_title(title)
+                    if qty is None:
+                        m_href_qty = re.search(r"-(\d+)-sht(?:-|$)", href.lower())
+                        if m_href_qty:
+                            qty = int(m_href_qty.group(1))
 
                     variants.append(Variant(qty=qty, href=href, selected=selected, dosage=level_dosage, title=title))
 
@@ -722,9 +723,6 @@ def get_variants_from_product_page(driver) -> List[Variant]:
                     if m:
                         qty = int(m.group(1))
 
-                if qty is None:
-                    continue
-
                 link = btn.find_elements(By.CSS_SELECTOR, "a.variantButton__link[href]")
                 if not link:
                     continue
@@ -737,6 +735,13 @@ def get_variants_from_product_page(driver) -> List[Variant]:
                     or link[0].get_attribute("title")
                     or ""
                 ).strip()
+
+                if qty is None:
+                    qty = extract_pack_qty_from_title(title)
+                if qty is None:
+                    m_href_qty = re.search(r"-(\d+)-sht(?:-|$)", href.lower())
+                    if m_href_qty:
+                        qty = int(m_href_qty.group(1))
 
                 variants.append(Variant(qty=qty, href=href, selected=selected, dosage=None, title=title))
 
@@ -943,8 +948,8 @@ def parse_product_page_one_item(
                 dosage_score = 1.0
                 dosage_note = "Совпадение дозировки: да"
             elif is_dosage_compatible(normalized_expected_dosage, found_dosage):
-                dosage_score = 0.7
-                dosage_note = "Совпадение дозировки: частично"
+                dosage_score = 1.0
+                dosage_note = "Совпадение дозировки: да (ожидаемая дозировка входит в найденную)"
             elif found_dosage is None:
                 dosage_score = 0.4
                 dosage_note = f"Совпадение дозировки: нет данных, ожидалось {normalized_expected_dosage}, найдено —"
@@ -1080,10 +1085,24 @@ def parse_product_page_one_item(
     }
 
 
-def _collect_matching_card_links(driver, query_name: str, job_id: str | None = None) -> List[Dict[str, str]]:
-    """Собирает ссылки карточек, названия которых подходят по нестрогому совпадению."""
+def _collect_matching_card_links(
+    driver,
+    query_name: str,
+    query_barcode: str = "",
+    query_product_code: str = "",
+    job_id: str | None = None,
+) -> List[Dict[str, str]]:
+    """
+    Собирает ссылки карточек из выдачи.
+
+    Важно: при поиске по штрихкоду/коду товара не фильтруем карточки по заголовку,
+    т.к. в выдаче часто короткие названия (например, только бренд), и строгий
+    фильтр может отрезать корректные варианты дозировки.
+    """
     cards = driver.find_elements(By.CSS_SELECTOR, ".catalog-card.card-flex")
     result: List[Dict[str, str]] = []
+    seen_hrefs: set[str] = set()
+    lookup_by_identity = bool((query_barcode or "").strip() or (query_product_code or "").strip())
 
     for card in cards:
         try:
@@ -1092,7 +1111,7 @@ def _collect_matching_card_links(driver, query_name: str, job_id: str | None = N
             if not title or "набор" in title.lower():
                 continue
 
-            if not is_name_match(query_name, title, job_id=job_id):
+            if not lookup_by_identity and not is_name_match(query_name, title, job_id=job_id):
                 continue
 
             href = ""
@@ -1101,10 +1120,15 @@ def _collect_matching_card_links(driver, query_name: str, job_id: str | None = N
                 href_raw = (link.get_attribute("href") or "").strip()
                 if not href_raw:
                     continue
-                href = href_raw
-                break
+                if "/product/" in href_raw:
+                    href = href_raw
+                    break
+                if not href:
+                    href = href_raw
 
-            if href:
+            href_norm = _normalized_product_url(href)
+            if href and href_norm and href_norm not in seen_hrefs:
+                seen_hrefs.add(href_norm)
                 result.append({"title": title, "href": href})
 
         except StaleElementReferenceException:
@@ -1140,7 +1164,13 @@ def parse_cards(
         job_log(job_id, msg)
 
     search_url = driver.current_url
-    candidates = _collect_matching_card_links(driver, query_name, job_id=job_id)
+    candidates = _collect_matching_card_links(
+        driver,
+        query_name,
+        query_barcode=query_barcode,
+        query_product_code=query_product_code,
+        job_id=job_id,
+    )
     log_parse(f"PARSE search candidates={len(candidates)}")
 
     rejection_reasons: list[str] = []
