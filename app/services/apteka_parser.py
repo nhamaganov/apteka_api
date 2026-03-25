@@ -1268,6 +1268,18 @@ def parse_one_query(
             parts.append(f"reason={reason!r}")
         search_log(job_id, " | ".join(parts))
 
+    def detect_page_type() -> str:
+        """Определяет тип текущей страницы результатов поиска."""
+        if is_unexpected_error_page(driver):
+            return "unexpected_error"
+        if is_empty_results_page(driver):
+            return "empty"
+        if is_product_page(driver):
+            return "product"
+        if is_search_results_page(driver):
+            return "search"
+        return "unknown"
+
     search_value = (query_barcode or query_name or "").strip()
 
     try:
@@ -1276,15 +1288,7 @@ def parse_one_query(
 
         run_search_with_retry(driver, search_value, timeout=timeout, max_retries=max_retries)
 
-        page_type = "unknown"
-        if is_unexpected_error_page(driver):
-            page_type = "unexpected_error"
-        elif is_empty_results_page(driver):
-            page_type = "empty"
-        elif is_product_page(driver):
-            page_type = "product"
-        elif is_search_results_page(driver):
-            page_type = "search"
+        page_type = detect_page_type()
 
         log_parse(
             f"PARSE start: query={query_name!r} barcode={query_barcode!r} product_code={query_product_code!r} raw={raw_input!r} expected_qty={expected_qty!r} "
@@ -1293,9 +1297,22 @@ def parse_one_query(
         )
 
         if is_empty_results_page(driver):
-            log_parse("PARSE context empty results page")
-            log_search_result(page_type=page_type, reason="Пустая выдача")
-            return "not_found", []
+            fallback_by_name = bool((query_barcode or "").strip() and (query_name or "").strip())
+            if fallback_by_name:
+                fallback_value = (query_name or "").strip()
+                log_parse(f"PARSE fallback by name: barcode_search_empty=True, fallback_value={fallback_value!r}")
+                run_search_with_retry(driver, fallback_value, timeout=timeout, max_retries=max_retries)
+                page_type = detect_page_type()
+                log_parse(
+                    f"PARSE fallback result: fallback_value={fallback_value!r} "
+                    f"url={driver.current_url!r} page={page_type}"
+                )
+                search_value = fallback_value
+
+            if is_empty_results_page(driver):
+                log_parse("PARSE context empty results page")
+                log_search_result(page_type=page_type, reason="Пустая выдача")
+                return "not_found", []
         
         if is_product_page(driver):
             try:
