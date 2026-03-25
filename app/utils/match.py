@@ -9,6 +9,22 @@ UNITS_PATTERN = r"(мг|г|гр|мкг|мл|ме|мe|me|ед|ле|le|%|iu)"
 
 MODIFIERS = {"микро", "плюс", "мини", "форте", "экстра", "лонг", "ретард", "квик", "дуо"}
 
+IUD_KEYWORDS = ("внутримат", "спирал", "система")
+IUD_GENERIC_TOKENS = {
+    "для",
+    "внутриматочная",
+    "внутриматочного",
+    "внутриматочный",
+    "внутриматочную",
+    "введения",
+    "введение",
+    "спираль",
+    "система",
+    "терапевтическая",
+    "терапевтический",
+    "терапевтическую",
+}
+
 MANUFACTURER_NOISE_WORDS = {
     "ооо", "оао", "зао", "пао", "ао", "ип", "inc", "llc", "ltd", "gmbh", "ag",
     "co", "corp", "company", "sa", "srl", "plc", "kg", "kgaa", "фарма", "pharma", "фарм",
@@ -64,6 +80,15 @@ def _log_name_normalization(job_id: str | None, message: str) -> None:
     from app.services.job_runner import normalization_log
 
     normalization_log(job_id, message)
+
+
+def _is_iud_context(text: str) -> bool:
+    return any(keyword in text for keyword in IUD_KEYWORDS)
+
+
+def _strip_iud_generic_tokens(text: str) -> str:
+    tokens = [token for token in text.split() if token not in IUD_GENERIC_TOKENS]
+    return " ".join(tokens)
 
 
 def normalize_product_name(raw: str, job_id: str | None = None, source: str = "") -> str:
@@ -331,6 +356,23 @@ def name_match_details(
 
     token_set_score = int(round(fuzz.token_set_ratio(a, b)))
     partial_score = int(round(fuzz.partial_ratio(a, b)))
+
+    if _is_iud_context(a) or _is_iud_context(b):
+        a_iud = _strip_iud_generic_tokens(a)
+        b_iud = _strip_iud_generic_tokens(b)
+        if a_iud and b_iud:
+            token_set_iud = int(round(fuzz.token_set_ratio(a_iud, b_iud)))
+            partial_iud = int(round(fuzz.partial_ratio(a_iud, b_iud)))
+            if max(token_set_iud, partial_iud) > max(token_set_score, partial_score):
+                token_set_score = token_set_iud
+                partial_score = partial_iud
+                _log_name_normalization(
+                    job_id,
+                    "MATCH IUD-ADJUST "
+                    f"xls_norm={a!r} -> {a_iud!r} | "
+                    f"site_norm={b!r} -> {b_iud!r} | "
+                    f"token_set={token_set_iud} | partial={partial_iud}",
+                )
     matched = token_set_score >= min_token_set or partial_score >= min_partial
     _log_name_normalization(
             job_id,
