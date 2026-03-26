@@ -288,9 +288,9 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
 
     main_extra_headers = [
         "Цена",
-        "Отклонение базовой цены",
-        "Отклонение закупочной цены",
-        "Отклонение цены нашего сайта",
+        "Отклонение от базовой цены",
+        "Отклонение от закупочной цены",
+        "Отклонение от нашего сайта",
     ]
     apteka_extra_headers = [
         "Найденный товар",
@@ -331,16 +331,26 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
     base_price_col: Optional[int] = None
     purchase_price_col: Optional[int] = None
     site_price_col: Optional[int] = None
+    fallback_site_price_col: Optional[int] = None
     for col_idx in range(df.shape[1]):
-        header_value = str(df.iat[header_row, col_idx]).strip().lower()
+        header_value = " ".join(str(df.iat[header_row, col_idx]).strip().lower().split())
         if base_price_col is None and "цена базовая" in header_value:
             base_price_col = col_idx
         if purchase_price_col is None and "цена закуп" in header_value:
             purchase_price_col = col_idx
-        if site_price_col is None and "цена фг" in header_value:
+        if site_price_col is None and "фг- it-к" in header_value:
             site_price_col = col_idx
-        if base_price_col is not None and purchase_price_col is not None and site_price_col is not None:
+        if fallback_site_price_col is None and "цена фг" in header_value:
+            fallback_site_price_col = col_idx
+        if (
+            base_price_col is not None
+            and purchase_price_col is not None
+            and site_price_col is not None
+        ):
             break
+
+    if site_price_col is None:
+        site_price_col = fallback_site_price_col
 
     base_markup_formula_rows: list[int] = []
     purchase_markup_formula_rows: list[int] = []
