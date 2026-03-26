@@ -919,15 +919,9 @@ def parse_product_page_one_item(
         if found_qty is None:
             found_qty = get_current_variant_qty()
 
-        semax_requested = "семакс" in (query_name or "").lower() or "семакс" in (query_raw or "").lower()
-        if semax_requested:
-            found_dosage = _get_product_dosage(driver)
-            if found_dosage is None:
-                found_dosage = extract_dosage_from_text(title)
-        else:
-            found_dosage = extract_dosage_from_text(title)
-            if found_dosage is None:
-                found_dosage = _get_product_dosage(driver)
+        found_dosage_from_attributes = _get_product_dosage(driver)
+        found_dosage_from_title = extract_dosage_from_text(title)
+        found_dosage = found_dosage_from_attributes or found_dosage_from_title
 
         criteria_scores: list[float] = []
         notes: list[str] = []
@@ -950,6 +944,20 @@ def parse_product_page_one_item(
             elif is_dosage_compatible(normalized_expected_dosage, found_dosage):
                 dosage_score = 1.0
                 dosage_note = "Совпадение дозировки: да (ожидаемая дозировка входит в найденную)"
+            elif (
+                found_dosage_from_attributes is not None
+                and found_dosage_from_title is not None
+                and (
+                    found_dosage_from_title == normalized_expected_dosage
+                    or is_dosage_compatible(normalized_expected_dosage, found_dosage_from_title)
+                )
+            ):
+                found_dosage = found_dosage_from_title
+                dosage_score = 1.0
+                dosage_note = (
+                    "Совпадение дозировки: да "
+                    "(дозировка из ProductAttributesList не совпала, но совпала в названии)"
+                )
             elif found_dosage is None:
                 dosage_score = 0.4
                 dosage_note = f"Совпадение дозировки: нет данных, ожидалось {normalized_expected_dosage}, найдено —"
