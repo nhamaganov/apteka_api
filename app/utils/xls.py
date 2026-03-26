@@ -137,51 +137,6 @@ def extract_product_codes_from_excel(path: str) -> list[dict]:
     return items
 
 
-def extract_queries_from_excel(path: str) -> list[dict]:
-    """Из передаваемого excel-файла возвращает все названия, количества и штрих-коды препаратов."""
-    df = read_spreadsheet(path)
-
-    header_row, header_col, barcode_col = _find_header_columns(df)
-
-    seen = set()
-    queries: list[dict] = []
-
-    for row_idx in range(header_row + 1, df.shape[0]):
-        raw_value = df.iat[row_idx, header_col]
-        if pd.isna(raw_value):
-            continue
-
-        raw = str(raw_value).strip()
-        if not raw:
-            continue
-
-        name = build_query_name(raw)
-        if not name:
-            continue
-
-        qty, qty_is_sum = extract_qty_from_xls_row(raw)
-        dosage = extract_dosage_from_xls_row(raw)
-
-        barcode = _normalize_barcode(df.iat[row_idx, barcode_col]) if barcode_col is not None else ""
-
-        key = (name.lower(), qty, dosage, barcode)
-        if key in seen:
-            continue
-        seen.add(key)
-
-        queries.append({
-            "name": name,
-            "qty": qty,
-            "dosage": dosage,
-            "barcode": barcode,
-            "qty_is_sum": qty_is_sum,
-            "raw": raw,
-            "row": raw, # потом можно убрать, для лога!!! 
-        })
-
-    return queries
-
-
 def _apteka_title(city_name: str) -> str:
     """Возвращает заголовок блока Apteka с учетом выбранного города."""
     normalized_city = (city_name or "").strip()

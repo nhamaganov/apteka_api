@@ -5,8 +5,6 @@ from rapidfuzz import fuzz
 from app.utils.name_patterns import apply_name_patterns
 
 
-UNITS_PATTERN = r"(мг|г|гр|мкг|мл|ме|мe|me|ед|ле|le|%|iu)"
-
 MODIFIERS = {"микро", "плюс", "мини", "форте", "экстра", "лонг", "ретард", "квик", "дуо"}
 
 IUD_KEYWORDS = ("внутримат", "спирал", "система")
@@ -101,11 +99,6 @@ def normalize_product_name(raw: str, job_id: str | None = None, source: str = ""
     if source:
         _log_name_normalization(job_id, f"NORMALIZE {source}: raw={original!r} -> normalized={s!r}")
     return s
-
-
-def extract_base_name(raw: str) -> str:
-    """Совместимость со старым API: возвращает полное унифицированное название."""
-    return normalize_product_name(raw)
 
 
 def extract_lindinet_variant(raw: str) -> str | None:
