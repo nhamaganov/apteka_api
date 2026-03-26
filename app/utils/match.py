@@ -31,10 +31,18 @@ MANUFACTURER_NOISE_WORDS = {
 COUNTRY_WORDS = {
     "россия", "венгрия", "франция", "германия", "италия", "испания", "швейцария", "сша",
     "китай", "япония", "индия", "польша", "чехия", "сербия", "австрия", "бельгия", "ирландия",
-    "великобритания", "пуэрто", "рико", "germany", "france", "russia", "hungary", "italy",
-    "spain", "switzerland", "usa", "china", "japan", "india", "poland", "czech", "serbia",
-    "austria", "belgium", "ireland", "uk",
+    "великобритания", "турция", "корея", "южная", "мексика", "бразилия", "египет", "израиль",
+    "таиланд", "вьетнам", "болгария", "румыния", "словения", "словакия", "хорватия", "латвия",
+    "литва", "эстония", "нидерланды", "норвегия", "швеция", "финляндия", "дания", "греция",
+    "португалия", "пуэрто", "рико",
+    "germany", "france", "russia", "hungary", "italy", "spain", "switzerland", "usa",
+    "china", "japan", "india", "poland", "czech", "serbia", "austria", "belgium",
+    "ireland", "uk", "turkey", "korea", "mexico", "brazil", "egypt", "israel", "thailand",
+    "vietnam", "bulgaria", "romania", "slovenia", "slovakia", "croatia", "latvia",
+    "lithuania", "estonia", "netherlands", "norway", "sweden", "finland", "denmark",
+    "greece", "portugal",
 }
+
 
 _CYR_TO_LAT = str.maketrans({
     "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh",
