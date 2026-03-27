@@ -10,7 +10,7 @@ from app.core.queue import JobQueue
 from app.core.time import now_iso
 from app.utils.match import extract_query_manufacturer
 from app.utils.xls import build_enriched_xlsx, build_flat_xlsx
-from app.services.apteka_parser import make_driver, recover_to_home, close_modal_if_any, parse_one_query, select_city
+from app.parsers.apteka_ru.parser import make_driver, recover_to_home, close_modal_if_any, parse_one_query, select_city
 
 
 async def process_job(job_id: str) -> None:
