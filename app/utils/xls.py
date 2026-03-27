@@ -241,6 +241,17 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         except ValueError:
             return None
 
+    def _extract_manufacturer_score(message: object) -> Optional[float]:
+        if message is None:
+            return None
+        match = re.search(r"score производителя:\s*(\d+(?:[.,]\d+)?)%", str(message), flags=re.IGNORECASE)
+        if not match:
+            return None
+        try:
+            return float(match.group(1).replace(",", "."))
+        except ValueError:
+            return None
+
     list_start_row = _find_list_start_row(df)
 
     if list_start_row is not None and list_start_row > header_row + 1:
@@ -456,12 +467,14 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         message_lower = message_text.lower()
         dosage_no_data = "совпадение дозировки: нет данных" in message_lower
         qty_sum_warning = query_qty_is_sum or ("уточните цену на сайте, возможны неточности" in message_lower)
+        manufacturer_score = _extract_manufacturer_score(message_text)
+        manufacturer_warning = manufacturer_score is not None and 50 < manufacturer_score < 70
 
         expected_dosage = _normalize_dosage(item.get("input_dosage"))
         found_dosage = _normalize_dosage(item.get("found_dosage"))
         dosage_exact = dosage_no_data or expected_dosage is None or expected_dosage == found_dosage
 
-        if qty_sum_warning or not dosage_exact:
+        if qty_sum_warning or not dosage_exact or manufacturer_warning:
             warning_rows.add(r)
 
     wb = Workbook()
