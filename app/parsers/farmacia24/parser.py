@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import random
 import time
 from urllib.parse import urljoin
 
@@ -58,8 +59,13 @@ class Farmacia24Parser:
     def _wait(self, driver: webdriver.Chrome, timeout: int) -> WebDriverWait:
         return WebDriverWait(driver, timeout)
 
+    def _human_delay(self) -> None:
+            """Пауза между действиями, чтобы имитировать поведение пользователя."""
+            time.sleep(random.uniform(2, 3))
+
     def _open_home(self, driver: webdriver.Chrome, timeout: int) -> None:
         driver.get(self.base_url)
+        self._human_delay()
         self._wait(driver, timeout).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, ".popup-regions__search-input"))
         )
@@ -78,8 +84,11 @@ class Farmacia24Parser:
         }
 
         city_input.click()
+        self._human_delay()
         city_input.clear()
+        self._human_delay()
         city_input.send_keys(city_name)
+        self._human_delay()
 
         city_name_lower = city_name.lower()
 
@@ -117,6 +126,7 @@ class Farmacia24Parser:
             raise TimeoutException(f"City '{city_name}' not found in regions list")
 
         driver.execute_script("arguments[0].click();", target_item)
+        self._human_delay()
 
         self._wait(driver, timeout).until_not(
             EC.visibility_of_element_located((By.CSS_SELECTOR, ".popup-regions__search-input"))
@@ -144,12 +154,13 @@ class Farmacia24Parser:
         и закрываем его через кнопку `.popup__close`.
         """
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(3)
+        self._human_delay()
 
         close_btn = self._wait(driver, timeout).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, ".popup__close"))
         )
         driver.execute_script("arguments[0].click();", close_btn)
+        self._human_delay()
 
         self._wait(driver, timeout).until_not(
             EC.visibility_of_element_located((By.CSS_SELECTOR, ".popup__close"))
@@ -168,8 +179,11 @@ class Farmacia24Parser:
             EC.visibility_of_element_located((By.CSS_SELECTOR, ".header-search__input"))
         )
         search_input.click()
+        self._human_delay()
         search_input.clear()
+        self._human_delay()
         search_input.send_keys(normalized_query)
+        self._human_delay()
 
         self._wait(driver, timeout).until(
             lambda _driver: (
@@ -182,7 +196,7 @@ class Farmacia24Parser:
             EC.element_to_be_clickable((By.CSS_SELECTOR, ".header-search__button"))
         )
         driver.execute_script("arguments[0].click();", search_button)
-        time.sleep(0.5)
+        self._human_delay()
 
     def _wait_search_state(self, driver: webdriver.Chrome, timeout: int) -> str:
         """
@@ -247,6 +261,22 @@ class Farmacia24Parser:
             payload={"result_index": 0},
         )
 
+    def _should_reset_driver(self, exc: WebDriverException) -> bool:
+        """
+        Перезапускаем браузер только для фатальных проблем с сессией/процессом Chrome.
+        Для обычных ошибок ожидания перезапуск не нужен.
+        """
+        message = (getattr(exc, "msg", "") or str(exc)).lower()
+        fatal_markers = (
+            "invalid session id",
+            "session deleted",
+            "disconnected",
+            "chrome not reachable",
+            "target window already closed",
+            "web view not found",
+        )
+        return any(marker in message for marker in fatal_markers)
+
     def healthcheck(self) -> bool:
         """Проверка доступности сайта и шага выбора города."""
         try:
@@ -274,7 +304,11 @@ class Farmacia24Parser:
                 items=[first_item],
                 error="",
             )
-        except WebDriverException:
+        except TimeoutException as exc:
+            return ParseOutcome(status="failed", items=[], error=f"Farmacia24 timeout: {exc}")
+        except WebDriverException as exc:
+            if not self._should_reset_driver(exc):
+                return ParseOutcome(status="failed", items=[], error=f"Farmacia24 webdriver error: {exc}")
             # Драйвер мог упасть на длинной серии запросов — восстанавливаем сессию 1 раз.
             self.close()
             self._is_prepared = False
