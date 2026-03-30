@@ -8,6 +8,8 @@ from app.core.settings import PARSE_MAX_RETRIES, PARSE_PAUSE, PARSE_TIMEOUT
 from app.core.storage import log_path, normalization_log_path, result_file_path, search_log_path, status_path, result_path, queries_path, read_json, write_json, upload_path
 from app.core.queue import JobQueue
 from app.core.time import now_iso
+from app.parsers.farmacia24.parser import Farmacia24Parser
+from app.parsers.models import ParseContext, ParseQuery
 from app.utils.match import extract_query_manufacturer
 from app.utils.xls import build_enriched_xlsx, build_flat_xlsx
 from app.parsers.apteka_ru.parser import make_driver, recover_to_home, close_modal_if_any, parse_one_query, select_city
@@ -30,12 +32,18 @@ def _process_job_sync(job_id: str) -> None:
     queries_data = read_json(queries_path(job_id))
     queries = queries_data.get("queries", [])
     selected_city = queries_data.get("city", "")
+    pharmacy_codes = queries_data.get("pharmacy_codes", ["apteka_ru"])
+    pharmacy_codes = [str(code).strip().lower() for code in pharmacy_codes if str(code).strip()]
+    if not pharmacy_codes:
+        pharmacy_codes = ["apteka_ru"]
     total = len(queries)
+    total *= len(pharmacy_codes)
 
     status["progress"]["total"] = total
     write_json(status_path(job_id), status)
 
     driver = None
+    farmacia24_parser = None
     all_items: List[Dict] = []
 
     def cancel_requested() -> bool:
@@ -51,10 +59,14 @@ def _process_job_sync(job_id: str) -> None:
         job_log(job_id, "JOB cancelled by user")
 
     try:
-        driver = make_driver()
-        recover_to_home(driver)
-        close_modal_if_any(driver, timeout=2)
-        select_city(driver, selected_city, timeout=8)
+        if "apteka_ru" in pharmacy_codes:
+            driver = make_driver()
+            recover_to_home(driver)
+            close_modal_if_any(driver, timeout=2)
+            select_city(driver, selected_city, timeout=8)
+
+        if "farmacia24" in pharmacy_codes:
+            farmacia24_parser = Farmacia24Parser()
 
         for q in queries:
             if cancel_requested():
@@ -83,85 +95,134 @@ def _process_job_sync(job_id: str) -> None:
                     q_manufacturer = extract_query_manufacturer(str(raw or ""))
 
             if not q_name:
-                status["progress"]["processed"] += 1
-                status["progress"]["not_found"] += 1
+                status["progress"]["processed"] += len(pharmacy_codes)
+                status["progress"]["not_found"] += len(pharmacy_codes)
                 write_json(status_path(job_id), status)
                 continue
 
-            query_parts = [f"Название: {q_name}"]
-            query_parts.append(f"RAW: {raw}" if raw else "RAW: —")
-            query_parts.append(f"Кол-во: {q_qty}" if q_qty is not None else "Кол-во: —")
-            query_parts.append(f"Дозировка: {q_dosage}" if q_dosage else "Дозировка: —")
-            query_parts.append(f"Производитель: {q_manufacturer}" if q_manufacturer else "Производитель: —")
-            query_parts.append(f"ШК: {q_barcode}" if q_barcode else "ШК: —")
-            query_parts.append(f"Код товара: {q_product_code}" if q_product_code else "Код товара: —")
-            job_log(job_id, f"Запрос: {' | '.join(query_parts)}")
+            for pharmacy_code in pharmacy_codes:
+                query_parts = [f"Аптека: {pharmacy_code}", f"Название: {q_name}"]
+                query_parts.append(f"RAW: {raw}" if raw else "RAW: —")
+                query_parts.append(f"Кол-во: {q_qty}" if q_qty is not None else "Кол-во: —")
+                query_parts.append(f"Дозировка: {q_dosage}" if q_dosage else "Дозировка: —")
+                query_parts.append(f"Производитель: {q_manufacturer}" if q_manufacturer else "Производитель: —")
+                query_parts.append(f"ШК: {q_barcode}" if q_barcode else "ШК: —")
+                query_parts.append(f"Код товара: {q_product_code}" if q_product_code else "Код товара: —")
+                job_log(job_id, f"Запрос: {' | '.join(query_parts)}")
 
-            outcome, items = parse_one_query(
-                driver,
-                q_name,
-                PARSE_TIMEOUT,
-                PARSE_MAX_RETRIES,
-                expected_qty=q_qty,
-                expected_dosage=q_dosage,
-                qty_is_sum=q_sum,
-                raw_input=raw,
-                query_barcode=q_barcode,
-                query_product_code=q_product_code,
-                query_manufacturer=q_manufacturer,
-                job_id=job_id,
-            )
+                if pharmacy_code == "apteka_ru":
+                    if driver is None:
+                        raise RuntimeError("Apteka driver is not initialized")
+                    outcome, items = parse_one_query(
+                        driver,
+                        q_name,
+                        PARSE_TIMEOUT,
+                        PARSE_MAX_RETRIES,
+                        expected_qty=q_qty,
+                        expected_dosage=q_dosage,
+                        qty_is_sum=q_sum,
+                        raw_input=raw,
+                        query_barcode=q_barcode,
+                        query_product_code=q_product_code,
+                        query_manufacturer=q_manufacturer,
+                        job_id=job_id,
+                    )
+                elif pharmacy_code == "farmacia24":
+                    if farmacia24_parser is None:
+                        raise RuntimeError("Farmacia24 parser is not initialized")
+                    outcome_data = farmacia24_parser.parse_one(
+                        ParseQuery(
+                            name=q_name,
+                            raw=str(raw or ""),
+                            qty=q_qty,
+                            dosage=str(q_dosage or ""),
+                            manufacturer=q_manufacturer,
+                            barcode=q_barcode,
+                            product_code=q_product_code,
+                        ),
+                        ParseContext(
+                            job_id=job_id,
+                            city=selected_city,
+                            timeout=PARSE_TIMEOUT,
+                            max_retries=PARSE_MAX_RETRIES,
+                        ),
+                    )
+                    outcome = outcome_data.status
+                    items = [
+                        {
+                            "source_pharmacy": item.source_pharmacy or "farmacia24",
+                            "status": item.status,
+                            "title": item.title,
+                            "price": item.price,
+                            "href": item.href,
+                            "raw": raw,
+                            "message": outcome_data.error,
+                        }
+                        for item in outcome_data.items
+                    ]
+                    if outcome_data.error and not items:
+                        items = [{"source_pharmacy": "farmacia24", "raw": raw, "message": outcome_data.error}]
+                else:
+                    outcome, items = "failed", []
 
-            if cancel_requested():
-                finalize_cancel()
-                return
+                if cancel_requested():
+                    finalize_cancel()
+                    return
 
-            found_title = "Не найдено"
-            found_brand = ""
-            found_message = ""
-            found_qty = None
-            found_dosage = ""
-            found_href = ""
-            if outcome == "matched" and items:
-                first_title = (items[0].get("title") or "").strip()
-                if first_title:
-                    found_title = first_title
-                found_brand = (items[0].get("found_brand") or "").strip()
-                found_message = (items[0].get("message") or "").strip()
-                found_qty = items[0].get("found_qty")
-                found_dosage = (items[0].get("found_dosage") or "").strip()
-                found_href = (items[0].get("href") or "").strip()
-            if outcome == "matched":
-                details_parts = [
-                    f"Найдено: {found_title}",
-                    f"Кол-во: {found_qty if found_qty is not None else '—'} (ожидалось: {q_qty if q_qty is not None else '—'})",
-                    f"Дозировка: {found_dosage or '—'} (ожидалось: {q_dosage or '—'})",
-                    f"Производитель: {found_brand or '—'} (ожидалось: {q_manufacturer or '—'})",
-                ]
-                if found_message:
-                    details_parts.append(f"Детали: {found_message}")
-                if found_href:
-                    details_parts.append(f"href: {found_href}")
-                job_log(job_id, " | ".join(details_parts))
-            else:
-                job_log(job_id, f"Найдено: {found_title}")
-            if outcome == "matched":
-                status["progress"]["matched"] += 1
-                all_items.extend(items)
-            elif outcome == "not_found":
-                status["progress"]["not_found"] += 1
-                all_items.extend(items)
-            else:
-                status["progress"]["failed"] += 1
-            
-            status["progress"]["processed"] += 1
-            write_json(status_path(job_id), status)
+                found_title = "Не найдено"
+                found_brand = ""
+                found_message = ""
+                found_qty = None
+                found_dosage = ""
+                found_href = ""
+                if outcome == "matched" and items:
+                    first_title = (items[0].get("title") or "").strip()
+                    if first_title:
+                        found_title = first_title
+                    found_brand = (items[0].get("found_brand") or "").strip()
+                    found_message = (items[0].get("message") or "").strip()
+                    found_qty = items[0].get("found_qty")
+                    found_dosage = (items[0].get("found_dosage") or "").strip()
+                    found_href = (items[0].get("href") or "").strip()
+                if outcome == "matched":
+                    details_parts = [
+                        f"Аптека: {pharmacy_code}",
+                        f"Найдено: {found_title}",
+                        f"Кол-во: {found_qty if found_qty is not None else '—'} (ожидалось: {q_qty if q_qty is not None else '—'})",
+                        f"Дозировка: {found_dosage or '—'} (ожидалось: {q_dosage or '—'})",
+                        f"Производитель: {found_brand or '—'} (ожидалось: {q_manufacturer or '—'})",
+                    ]
+                    if found_message:
+                        details_parts.append(f"Детали: {found_message}")
+                    if found_href:
+                        details_parts.append(f"href: {found_href}")
+                    job_log(job_id, " | ".join(details_parts))
+                else:
+                    if outcome == "failed":
+                        fail_reason = (items[0].get("message") or "").strip() if items else ""
+                        if fail_reason:
+                            job_log(job_id, f"Аптека: {pharmacy_code} | Ошибка: {fail_reason}")
+                        else:
+                            job_log(job_id, f"Аптека: {pharmacy_code} | Ошибка: неизвестная причина")
+                    else:
+                        job_log(job_id, f"Аптека: {pharmacy_code} | Найдено: {found_title}")
+                if outcome == "matched":
+                    status["progress"]["matched"] += 1
+                    all_items.extend(items)
+                elif outcome == "not_found":
+                    status["progress"]["not_found"] += 1
+                    all_items.extend(items)
+                else:
+                    status["progress"]["failed"] += 1
 
-            time.sleep(PARSE_PAUSE)
+                status["progress"]["processed"] += 1
+                write_json(status_path(job_id), status)
 
-            if cancel_requested():
-                finalize_cancel()
-                return
+                time.sleep(PARSE_PAUSE)
+
+                if cancel_requested():
+                    finalize_cancel()
+                    return
 
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items})
 
@@ -193,6 +254,11 @@ def _process_job_sync(job_id: str) -> None:
         if driver is not None:
             try:
                 driver.quit()
+            except Exception:
+                pass
+        if farmacia24_parser is not None:
+            try:
+                farmacia24_parser.close()
             except Exception:
                 pass
 
