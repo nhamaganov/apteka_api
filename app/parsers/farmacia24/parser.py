@@ -50,6 +50,7 @@ class Farmacia24Parser:
 
         # For windows
         options = Options()
+        options.add_argument("--headless=new")
         options.add_argument("--window-size=1400,900")
         return webdriver.Chrome(options=options)
 

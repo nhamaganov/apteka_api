@@ -171,6 +171,8 @@ def _process_job_sync(job_id: str) -> None:
                             "href": item.href,
                             "raw": raw,
                             "input_name": q_name,
+                            "input_barcode": q_barcode,
+                            "input_product_code": q_product_code,
                             "input_qty": (item.payload or {}).get("input_qty", q_qty),
                             "input_dosage": (item.payload or {}).get("input_dosage", q_dosage),
                             "found_qty": (item.payload or {}).get("found_qty"),
@@ -189,11 +191,25 @@ def _process_job_sync(job_id: str) -> None:
                                 "price": "",
                                 "href": "",
                                 "raw": raw,
+                                "input_name": q_name,
+                                "input_barcode": q_barcode,
+                                "input_product_code": q_product_code,
+                                "input_qty": q_qty,
+                                "input_dosage": q_dosage,
                                 "message": (outcome_data.error or "").strip() or "Результаты не найдены",
                             }
                         ]
                     if outcome_data.error and not items:
-                        items = [{"source_pharmacy": "farmacia24", "raw": raw, "message": outcome_data.error}]
+                        items = [{
+                            "source_pharmacy": "farmacia24",
+                            "raw": raw,
+                            "input_name": q_name,
+                            "input_barcode": q_barcode,
+                            "input_product_code": q_product_code,
+                            "input_qty": q_qty,
+                            "input_dosage": q_dosage,
+                            "message": outcome_data.error,
+                        }]
                     if outcome == "matched" and items:
                         first_item = items[0]
                         farmacia24_log(
