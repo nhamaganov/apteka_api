@@ -5,7 +5,7 @@ from typing import Dict, List
 from zoneinfo import ZoneInfo
 
 from app.core.settings import PARSE_MAX_RETRIES, PARSE_PAUSE, PARSE_TIMEOUT
-from app.core.storage import log_path, normalization_log_path, result_file_path, search_log_path, status_path, result_path, queries_path, read_json, write_json, upload_path
+from app.core.storage import farmacia24_log_path, log_path, normalization_log_path, result_file_path, search_log_path, status_path, result_path, queries_path, read_json, write_json, upload_path
 from app.core.queue import JobQueue
 from app.core.time import now_iso
 from app.parsers.farmacia24.parser import Farmacia24Parser
@@ -130,6 +130,20 @@ def _process_job_sync(job_id: str) -> None:
                 elif pharmacy_code == "farmacia24":
                     if farmacia24_parser is None:
                         raise RuntimeError("Farmacia24 parser is not initialized")
+                    farmacia24_log(
+                        job_id,
+                        " | ".join(
+                            [
+                                f"Запрос: {q_name}",
+                                f"RAW: {raw if raw else '—'}",
+                                f"Кол-во: {q_qty if q_qty is not None else '—'}",
+                                f"Дозировка: {q_dosage if q_dosage else '—'}",
+                                f"Производитель: {q_manufacturer if q_manufacturer else '—'}",
+                                f"ШК: {q_barcode if q_barcode else '—'}",
+                                f"Код товара: {q_product_code if q_product_code else '—'}",
+                            ]
+                        ),
+                    )
                     outcome_data = farmacia24_parser.parse_one(
                         ParseQuery(
                             name=q_name,
@@ -162,6 +176,26 @@ def _process_job_sync(job_id: str) -> None:
                     ]
                     if outcome_data.error and not items:
                         items = [{"source_pharmacy": "farmacia24", "raw": raw, "message": outcome_data.error}]
+                    if outcome == "matched" and items:
+                        first_item = items[0]
+                        farmacia24_log(
+                            job_id,
+                            " | ".join(
+                                [
+                                    f"Статус: {outcome}",
+                                    f"Найдено: {(first_item.get('title') or '').strip() or '—'}",
+                                    f"Цена: {(first_item.get('price') or '').strip() or '—'}",
+                                    f"Ссылка: {(first_item.get('href') or '').strip() or '—'}",
+                                ]
+                            ),
+                        )
+                    elif outcome == "not_found":
+                        farmacia24_log(job_id, "Статус: not_found | Результаты не найдены")
+                    else:
+                        farmacia24_log(
+                            job_id,
+                            f"Статус: failed | Ошибка: {(outcome_data.error or '').strip() or 'неизвестная причина'}",
+                        )
                 else:
                     outcome, items = "failed", []
 
@@ -309,6 +343,15 @@ def pharmeconom_log(job_id: str, msg: str) -> None:
 def normalization_log(job_id: str, msg: str) -> None:
     """Добавляет строку в отдельный лог нормализации названий."""
     p = normalization_log_path(job_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    line = f"{datetime.now(ZoneInfo('Asia/Irkutsk')).strftime('%d-%m %H:%M:%S')} | {msg}\n"
+    with p.open("a", encoding="utf-8") as f:
+        f.write(line)
+
+
+def farmacia24_log(job_id: str, msg: str) -> None:
+    """Добавляет строку в отдельный лог парсинга farmacia24."""
+    p = farmacia24_log_path(job_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     line = f"{datetime.now(ZoneInfo('Asia/Irkutsk')).strftime('%d-%m %H:%M:%S')} | {msg}\n"
     with p.open("a", encoding="utf-8") as f:

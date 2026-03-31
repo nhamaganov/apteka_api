@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 
 from app.core.naming import make_display_name
 from app.core.storage import (
-    ensure_job_store, job_dir, log_path, normalization_log_path, pharmeconom_log_path, result_file_path, upload_path, status_path, result_path, write_json, read_json, queries_path
+    ensure_job_store, farmacia24_log_path, job_dir, log_path, normalization_log_path, pharmeconom_log_path, result_file_path, upload_path, status_path, result_path, write_json, read_json, queries_path
 )
 from app.core.models import JobProgress, JobStatus
 from app.core.time import now_iso
@@ -197,6 +197,21 @@ def get_job_pharmeconom_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
 def get_job_normalization_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
     """Возвращает последние строки отдельного лога нормализации названий."""
     p = normalization_log_path(job_id)
+    if not p.exists():
+        return {"job_id": job_id, "lines": []}
+
+    try:
+        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return {"job_id": job_id, "lines": []}
+
+    return {"job_id": job_id, "lines": lines[-tail:]}
+
+
+@router.get("/{job_id}/farmacia24-log")
+def get_job_farmacia24_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
+    """Возвращает последние строки отдельного лога парсинга farmacia24."""
+    p = farmacia24_log_path(job_id)
     if not p.exists():
         return {"job_id": job_id, "lines": []}
 
