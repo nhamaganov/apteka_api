@@ -170,10 +170,28 @@ def _process_job_sync(job_id: str) -> None:
                             "price": item.price,
                             "href": item.href,
                             "raw": raw,
-                            "message": outcome_data.error,
+                            "input_name": q_name,
+                            "input_qty": (item.payload or {}).get("input_qty", q_qty),
+                            "input_dosage": (item.payload or {}).get("input_dosage", q_dosage),
+                            "found_qty": (item.payload or {}).get("found_qty"),
+                            "found_dosage": (item.payload or {}).get("found_dosage"),
+                            "found_brand": (item.payload or {}).get("found_brand"),
+                            "message": ((item.payload or {}).get("message") or outcome_data.error or "").strip(),
                         }
                         for item in outcome_data.items
                     ]
+                    if outcome == "not_found" and not items:
+                        items = [
+                            {
+                                "source_pharmacy": "farmacia24",
+                                "status": "not_found",
+                                "title": "Не найдено",
+                                "price": "",
+                                "href": "",
+                                "raw": raw,
+                                "message": (outcome_data.error or "").strip() or "Результаты не найдены",
+                            }
+                        ]
                     if outcome_data.error and not items:
                         items = [{"source_pharmacy": "farmacia24", "raw": raw, "message": outcome_data.error}]
                     if outcome == "matched" and items:
@@ -190,7 +208,8 @@ def _process_job_sync(job_id: str) -> None:
                             ),
                         )
                     elif outcome == "not_found":
-                        farmacia24_log(job_id, "Статус: not_found | Результаты не найдены")
+                        reason = (outcome_data.error or "").strip() or "Результаты не найдены"
+                        farmacia24_log(job_id, f"Статус: not_found | Причина: {reason}")
                     else:
                         farmacia24_log(
                             job_id,
