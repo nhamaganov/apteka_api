@@ -30,26 +30,26 @@ class Farmacia24Parser:
         self._is_prepared = False
 
     def _make_driver(self) -> webdriver.Chrome:
-        options = Options()
-        headless_enabled = os.environ.get("FARMACIA24_HEADLESS", "1").strip().lower() not in {"0", "false", "no"}
-        if headless_enabled:
-            options.add_argument("--headless=new")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--window-size=1400,900")
+        # options = Options()
+        # headless_enabled = os.environ.get("FARMACIA24_HEADLESS", "1").strip().lower() not in {"0", "false", "no"}
+        # if headless_enabled:
+        #     options.add_argument("--headless=new")
+        # options.add_argument("--no-sandbox")
+        # options.add_argument("--disable-dev-shm-usage")
+        # options.add_argument("--window-size=1400,900")
 
-        chrome_bin = os.environ.get("CHROME_BIN")
-        if chrome_bin:
-            options.binary_location = chrome_bin
+        # chrome_bin = os.environ.get("CHROME_BIN")
+        # if chrome_bin:
+        #     options.binary_location = chrome_bin
 
-        chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-        service = Service(chromedriver_path)
-        return webdriver.Chrome(service=service, options=options)
+        # chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+        # service = Service(chromedriver_path)
+        # return webdriver.Chrome(service=service, options=options)
 
         # For windows
-        # options = Options()
-        # options.add_argument("--window-size=1400,900")
-        # return webdriver.Chrome(options=options)
+        options = Options()
+        options.add_argument("--window-size=1400,900")
+        return webdriver.Chrome(options=options)
 
     def _get_driver(self) -> webdriver.Chrome:
         if self._driver is None:
@@ -65,7 +65,6 @@ class Farmacia24Parser:
 
     def _open_home(self, driver: webdriver.Chrome, timeout: int) -> None:
         driver.get(self.base_url)
-        self._human_delay()
         self._wait(driver, timeout).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, ".popup-regions__search-input"))
         )
@@ -84,9 +83,7 @@ class Farmacia24Parser:
         }
 
         city_input.click()
-        self._human_delay()
         city_input.clear()
-        self._human_delay()
         city_input.send_keys(city_name)
         self._human_delay()
 
@@ -126,7 +123,6 @@ class Farmacia24Parser:
             raise TimeoutException(f"City '{city_name}' not found in regions list")
 
         driver.execute_script("arguments[0].click();", target_item)
-        self._human_delay()
 
         self._wait(driver, timeout).until_not(
             EC.visibility_of_element_located((By.CSS_SELECTOR, ".popup-regions__search-input"))
@@ -154,7 +150,6 @@ class Farmacia24Parser:
         и закрываем его через кнопку `.popup__close`.
         """
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        self._human_delay()
 
         close_btn = self._wait(driver, timeout).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, ".popup__close"))
@@ -179,9 +174,7 @@ class Farmacia24Parser:
             EC.visibility_of_element_located((By.CSS_SELECTOR, ".header-search__input"))
         )
         search_input.click()
-        self._human_delay()
         search_input.clear()
-        self._human_delay()
         search_input.send_keys(normalized_query)
         self._human_delay()
 
@@ -196,7 +189,32 @@ class Farmacia24Parser:
             EC.element_to_be_clickable((By.CSS_SELECTOR, ".header-search__button"))
         )
         driver.execute_script("arguments[0].click();", search_button)
-        self._human_delay()
+        self._wait_loader_to_disappear(driver, timeout)
+
+    def _wait_loader_to_disappear(self, driver: webdriver.Chrome, timeout: int) -> None:
+        """
+        После отправки поиска на сайте может появляться оверлей `.loader`.
+        Если он появился — ждём, пока полностью исчезнет, прежде чем читать выдачу.
+        """
+        loader_selector = ".loader"
+
+        try:
+            WebDriverWait(driver, min(timeout, 3)).until(
+                lambda _driver: any(
+                    loader.is_displayed()
+                    for loader in _driver.find_elements(By.CSS_SELECTOR, loader_selector)
+                )
+            )
+        except TimeoutException:
+            # Лоадер может не появиться на быстрых ответах — это валидный сценарий.
+            return
+
+        self._wait(driver, timeout).until(
+            lambda _driver: all(
+                not loader.is_displayed()
+                for loader in _driver.find_elements(By.CSS_SELECTOR, loader_selector)
+            )
+        )
 
     def _wait_search_state(self, driver: webdriver.Chrome, timeout: int) -> str:
         """
