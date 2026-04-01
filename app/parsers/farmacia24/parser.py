@@ -367,9 +367,12 @@ class Farmacia24Parser:
         if expected_dosage:
             criteria_scores.append(dosage_score)
             notes.append(dosage_note)
-        if manufacturer_match["reason"] != "query_manufacturer_empty":
+        if manufacturer_match["reason"] == "query_manufacturer_empty":
+            notes.append("Score производителя: — (в запросе не указан)")
+        else:
             criteria_scores.append(manufacturer_match["score"] / 100.0)
             notes.append(f"Совпадение производителя: {'да' if manufacturer_match['matched'] else 'нет'}")
+            notes.append(f"Score производителя: {manufacturer_match['score']}%")
 
         score = sum(criteria_scores) / len(criteria_scores) if criteria_scores else 1.0
         if score < 0.7:
@@ -457,7 +460,7 @@ class Farmacia24Parser:
                 return None, f"нет карточек с подходящим названием (пропущено: {name_skipped_count})"
             return None, "не удалось открыть ни одной карточки для проверки"
         if reasons:
-            return None, " ; ".join(reasons[:5])
+            return None, "\n".join(reasons[:5])
         return None, "карточки проверены, совпадений не найдено"
     
 
