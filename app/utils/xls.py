@@ -494,9 +494,19 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
 
             expected_dosage = _normalize_dosage(item.get("input_dosage"))
             found_dosage = _normalize_dosage(item.get("found_dosage"))
-            dosage_exact = dosage_no_data or expected_dosage is None or expected_dosage == found_dosage
+            dosage_similarity_percent = item.get("dosage_similarity_percent")
+            dosage_warning = False
+            if dosage_similarity_percent is not None:
+                try:
+                    similarity_value = int(dosage_similarity_percent)
+                    dosage_warning = 50 <= similarity_value <= 90
+                except (TypeError, ValueError):
+                    dosage_warning = False
+            else:
+                dosage_exact = dosage_no_data or expected_dosage is None or expected_dosage == found_dosage
+                dosage_warning = not dosage_exact
 
-            if qty_sum_warning or not dosage_exact or manufacturer_warning:
+            if qty_sum_warning or dosage_warning or manufacturer_warning:
                 warning_rows_by_code[code].add(r)
 
     wb = Workbook()

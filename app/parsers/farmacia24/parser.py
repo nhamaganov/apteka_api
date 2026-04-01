@@ -17,6 +17,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from app.parsers.models import ParseContext, ParseItem, ParseOutcome, ParseQuery
 from app.utils.match import is_name_match, manufacturer_match_details, name_match_details
 from app.utils.xls import extract_dosage_from_xls_row, extract_qty_from_xls_row
+from rapidfuzz import fuzz
 
 
 class Farmacia24Parser:
@@ -50,7 +51,7 @@ class Farmacia24Parser:
 
         # For windows
         options = Options()
-        options.add_argument("--headless=new")
+        # options.add_argument("--headless=new")
         options.add_argument("--window-size=1400,900")
         return webdriver.Chrome(options=options)
 
@@ -64,7 +65,14 @@ class Farmacia24Parser:
 
     def _human_delay(self) -> None:
             """Пауза между действиями, чтобы имитировать поведение пользователя."""
-            time.sleep(random.uniform(2, 3))
+            time.sleep(random.uniform(1.5, 2.5))
+    
+    def _parse_log(self, job_id: str | None, msg: str) -> None:
+        if not job_id:
+            return
+        from app.services.job_runner import job_log
+
+        job_log(job_id, msg)
 
     def _open_home(self, driver: webdriver.Chrome, timeout: int) -> None:
         driver.get(self.base_url)
@@ -188,11 +196,19 @@ class Farmacia24Parser:
             )
         )
 
+        previous_card = self._first_visible_result_card(driver)
         search_button = self._wait(driver, timeout).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, ".header-search__button"))
         )
         driver.execute_script("arguments[0].click();", search_button)
         self._wait_loader_to_disappear(driver, timeout)
+
+        if previous_card is not None:
+            try:
+                self._wait(driver, min(timeout, 5)).until(EC.staleness_of(previous_card))
+            except TimeoutException:
+                # На сайте иногда переиспользуется DOM-узел карточек. Это не ошибка.
+                pass
 
     def _wait_loader_to_disappear(self, driver: webdriver.Chrome, timeout: int) -> None:
         """
@@ -290,6 +306,16 @@ class Farmacia24Parser:
                     card_index += 1
         return cards_data
 
+    def _first_visible_result_card(self, driver: webdriver.Chrome):
+        cards = driver.find_elements(By.CSS_SELECTOR, ".product-card.product-card_type_catalog")
+        for card in cards:
+            try:
+                if card.is_displayed():
+                    return card
+            except Exception:
+                continue
+        return None
+
     def _wait_product_page_loaded(self, driver: webdriver.Chrome, timeout: int) -> None:
         self._wait(driver, timeout).until(
             EC.visibility_of_element_located((By.CSS_SELECTOR, "h1.product-page-info__title"))
@@ -310,91 +336,149 @@ class Farmacia24Parser:
                 break
         return title, manufacturer
 
-    def _is_dosage_compatible(self, expected: str | None, found: str | None) -> bool:
+    def _dosage_similarity_percent(self, expected: str | None, found: str | None) -> int:
         expected_norm = (expected or "").strip().lower()
         found_norm = (found or "").strip().lower()
         if not expected_norm or not found_norm:
-            return False
-        return expected_norm in found_norm or found_norm in expected_norm
+            return 0
+        if expected_norm == found_norm:
+            return 100
+        if expected_norm in found_norm or found_norm in expected_norm:
+            return 100
+        return int(round(fuzz.ratio(expected_norm, found_norm)))
 
     def _is_product_page_match(
         self,
         query: ParseQuery,
         page_title: str,
         page_manufacturer: str,
-    ) -> tuple[bool, float, int | None, str | None, str | None, str, bool]:
+    ) -> tuple[bool, float, int | None, str | None, str | None, str, bool, int | None]:
         found_brand = (page_manufacturer or "").strip()
         name_match = name_match_details(query.name, page_title)
+        name_score_note = (
+            f"Score названия: {name_match['score']}% "
+            f"(token_set={name_match['token_set_score']}%, partial={name_match['partial_score']}%)"
+        )
         if not name_match["matched"]:
-            return False, 0.0, None, None, found_brand, "название на странице товара не совпало", False
+            return (
+                False,
+                0.0,
+                None,
+                None,
+                found_brand,
+                f"название на странице товара не совпало | {name_score_note}",
+                False,
+                None,
+            )
 
         found_qty, _ = extract_qty_from_xls_row(page_title)
         expected_qty = query.qty
+        qty_score_note = "Score количества: — (в запросе не указано)"
+        if expected_qty is not None:
+            qty_score = 100 if found_qty == expected_qty else 0
+            qty_score_note = (
+                f"Score количества: {qty_score}% "
+                f"(ожидалось={expected_qty}, найдено={found_qty if found_qty is not None else '—'})"
+            )
         if expected_qty is not None and found_qty != expected_qty:
-            return False, 0.0, found_qty, None, found_brand, f"кол-во не совпало: ожидалось {expected_qty}, найдено {found_qty}", False
+            return (
+                False,
+                0.0,
+                found_qty,
+                None,
+                found_brand,
+                f"кол-во не совпало: ожидалось {expected_qty}, найдено {found_qty} | {name_score_note} | {qty_score_note}",
+                False,
+                None,
+            )
 
         expected_dosage = extract_dosage_from_xls_row(query.dosage or query.raw or query.name)
         found_dosage = extract_dosage_from_xls_row(page_title)
-        dosage_score = 1.0
-        dosage_note = ""
+        dosage_score: float | None = None
+        dosage_note = "Score дозировки: — (в запросе не указана)"
+        dosage_percent: int | None = None
         if expected_dosage:
-            if found_dosage == expected_dosage:
-                dosage_score = 1.0
-                dosage_note = "Совпадение дозировки: да"
-            elif self._is_dosage_compatible(expected_dosage, found_dosage):
-                dosage_score = 1.0
-                dosage_note = "Совпадение дозировки: да (ожидаемая дозировка входит в найденную)"
-            elif found_dosage is None:
-                dosage_score = 0.4
-                dosage_note = f"Совпадение дозировки: нет данных, ожидалось {expected_dosage}, найдено —"
+            if found_dosage is None:
+                dosage_note = f"Score дозировки: — (нет данных, ожидалось {expected_dosage})"
             else:
-                dosage_score = 0.0
-                dosage_note = f"Совпадение дозировки: нет, ожидалось {expected_dosage}, найдено {found_dosage}"
+                dosage_percent = self._dosage_similarity_percent(expected_dosage, found_dosage)
+                dosage_score = dosage_percent / 100.0
+                dosage_note = (
+                    f"Score дозировки: {dosage_percent}% "
+                    f"(ожидалось={expected_dosage}, найдено={found_dosage})"
+                )
+                if dosage_percent < 50:
+                    return (
+                        False,
+                        0.0,
+                        found_qty,
+                        found_dosage,
+                        found_brand,
+                        f"дозировка ниже порога 50% | {name_score_note} | {qty_score_note} | {dosage_note}",
+                        False,
+                        dosage_percent,
+                    )
 
         manufacturer_match = manufacturer_match_details(
             query_raw=query.raw or query.name,
             site_brand=page_manufacturer,
             query_manufacturer=query.manufacturer,
         )
+        if manufacturer_match["reason"] == "query_manufacturer_empty":
+            manufacturer_score_note = "Score производителя: — (в запросе не указан)"
+        else:
+            manufacturer_score_note = (
+                f"Score производителя: {manufacturer_match['score']}% "
+                f"(порог={manufacturer_match['threshold']}%)"
+            )
         if manufacturer_match["reason"] != "query_manufacturer_empty" and not manufacturer_match["matched"]:
-            return False, 0.0, found_qty, found_dosage, found_brand, "производитель не совпал", False
+            return (
+                False,
+                0.0,
+                found_qty,
+                found_dosage,
+                found_brand,
+                f"производитель не совпал | {name_score_note} | {qty_score_note} | {dosage_note} | {manufacturer_score_note}",
+                False,
+                dosage_percent,
+            )
 
         criteria_scores: list[float] = []
-        notes: list[str] = []
+        notes: list[str] = [name_score_note, qty_score_note, dosage_note, manufacturer_score_note]
 
         if expected_qty is not None:
             criteria_scores.append(1.0)
-        if expected_dosage:
+        if expected_dosage and dosage_score is not None:
             criteria_scores.append(dosage_score)
-            notes.append(dosage_note)
-        if manufacturer_match["reason"] == "query_manufacturer_empty":
-            notes.append("Score производителя: — (в запросе не указан)")
-        else:
+        if manufacturer_match["reason"] != "query_manufacturer_empty":
             criteria_scores.append(manufacturer_match["score"] / 100.0)
-            notes.append(f"Совпадение производителя: {'да' if manufacturer_match['matched'] else 'нет'}")
-            notes.append(f"Score производителя: {manufacturer_match['score']}%")
 
         score = sum(criteria_scores) / len(criteria_scores) if criteria_scores else 1.0
         if score < 0.7:
             note = " | ".join([n for n in notes if n]) or "Вариант не прошёл проверку по критериям совпадения"
-            return False, 0.0, found_qty, found_dosage, found_brand, note, False
+            return False, 0.0, found_qty, found_dosage, found_brand, note, False, dosage_percent
 
         perfect_match = (
             (expected_qty is None or found_qty == expected_qty)
-            and (not expected_dosage or dosage_score >= 1.0)
+            and (
+                not expected_dosage
+                or dosage_percent is None
+                or dosage_percent > 90
+            )
             and (
                 manufacturer_match["reason"] == "query_manufacturer_empty"
                 or manufacturer_match["matched"]
             )
         )
         note = " | ".join([n for n in notes if n]) or "совпадение найдено"
-        return True, score, found_qty, found_dosage, found_brand, note, perfect_match
+        return True, score, found_qty, found_dosage, found_brand, note, perfect_match, dosage_percent
 
     def _find_matching_card(
         self,
         driver: webdriver.Chrome,
         query: ParseQuery,
-    timeout: int,
+        timeout: int,
+        job_id: str | None = None,
     ) -> tuple[ParseItem | None, str]:
         cards = self._collect_result_cards(driver)
         if not cards:
@@ -402,16 +486,21 @@ class Farmacia24Parser:
 
         search_url = driver.current_url
         checked_count = 0
-        name_skipped_count = 0
         reasons: list[str] = []
         best_item: ParseItem | None = None
         best_score = -1.0
+
+        prefiltered_cards: list[dict] = []
         for card in cards:
             card_title = (card.get("title") or "").strip()
-            if card_title and not is_name_match(query.name, card_title):
-                name_skipped_count += 1
-                continue
+            if not card_title or is_name_match(query.name, card_title):
+                prefiltered_cards.append(card)
 
+        cards_to_check = prefiltered_cards if prefiltered_cards else cards
+        if not prefiltered_cards:
+            reasons.append("предфильтр по названию не сработал, проверяем карточки без фильтра")
+
+        for card in cards_to_check:
             href = (card.get("href") or "").strip()
             if not href:
                 reasons.append(f"card[{card.get('index')}]: отсутствует ссылка на товар")
@@ -420,8 +509,15 @@ class Farmacia24Parser:
             checked_count += 1
             driver.get(href)
             page_title, page_manufacturer = self._extract_product_page_data(driver, timeout)
-            matched, score, found_qty, found_dosage, found_brand, reason, perfect_match = self._is_product_page_match(
+            matched, score, found_qty, found_dosage, found_brand, reason, perfect_match, dosage_percent = self._is_product_page_match(
                 query, page_title, page_manufacturer
+            )
+            self._parse_log(
+                job_id,
+                "FARMACIA24 candidate: "
+                f"idx={card.get('index')} matched={matched} perfect={perfect_match} score={score:.3f} "
+                f"title={page_title!r} found_qty={found_qty!r} found_dosage={found_dosage!r} "
+                f"found_brand={found_brand!r} details={reason!r}",
             )
             if matched:
                 candidate_item = ParseItem(
@@ -439,6 +535,7 @@ class Farmacia24Parser:
                         "message": reason,
                         "input_qty": query.qty,
                         "input_dosage": extract_dosage_from_xls_row(query.dosage or query.raw or query.name),
+                        "dosage_similarity_percent": dosage_percent,
                     },
                 )
                 if perfect_match:
@@ -456,8 +553,6 @@ class Farmacia24Parser:
         if best_item is not None:
             return best_item, ""
         if checked_count == 0:
-            if name_skipped_count:
-                return None, f"нет карточек с подходящим названием (пропущено: {name_skipped_count})"
             return None, "не удалось открыть ни одной карточки для проверки"
         if reasons:
             return None, "\n".join(reasons[:5])
@@ -501,7 +596,7 @@ class Farmacia24Parser:
             if search_state == "not_found":
                 return ParseOutcome(status="not_found", items=[], error="Поиск на сайте не дал результатов")
 
-            first_item, not_found_reason = self._find_matching_card(driver, query, timeout)
+            first_item, not_found_reason = self._find_matching_card(driver, query, timeout, context.job_id)
             if first_item is None:
                 return ParseOutcome(status="not_found", items=[], error=not_found_reason)
             return ParseOutcome(
@@ -526,7 +621,7 @@ class Farmacia24Parser:
                 search_state = self._wait_search_state(driver, timeout)
                 if search_state == "not_found":
                     return ParseOutcome(status="not_found", items=[], error="Поиск на сайте не дал результатов")
-                first_item, not_found_reason = self._find_matching_card(driver, query, timeout)
+                first_item, not_found_reason = self._find_matching_card(driver, query, timeout, context.job_id)
                 if first_item is None:
                     return ParseOutcome(status="not_found", items=[], error=not_found_reason)
                 return ParseOutcome(status="matched", items=[first_item], error="")
