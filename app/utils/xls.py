@@ -795,6 +795,22 @@ def extract_qty_from_xls_row(text: str) -> Tuple[Optional[int], bool]:
 
     normalized_text = str(text).lower().replace("ё", "е")
 
+    # Упаковки вида "№28х3"/"N28x3" трактуем как 28 * 3 = 84.
+    # Это используется в farmacia24, где количество иногда задается
+    # через знак умножения вместо суммы.
+    multiply_match = re.search(
+        r"(?:\bN\s*|№\s*)(\d+(?:\s*[xх×*]\s*\d+)+)\b",
+        str(text),
+        flags=re.IGNORECASE,
+    )
+    if multiply_match:
+        factors = [int(part) for part in re.split(r"\s*[xх×*]\s*", multiply_match.group(1)) if part.isdigit()]
+        if factors:
+            product = 1
+            for factor in factors:
+                product *= factor
+            return product, False
+        
     # Специальный кейс для Видора микро: упаковки вида "21 шт.+7" и "24 шт.+4"
     # должны учитываться суммарно (21+7=28, 24+4=28), иначе такие позиции
     # ошибочно отбрасываются при сравнении с карточкой товара на сайте (28 шт.).
