@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import random
+import re
 import time
 from urllib.parse import urljoin
 
@@ -372,12 +373,27 @@ class Farmacia24Parser:
             return 100
         return int(round(fuzz.ratio(expected_norm, found_norm)))
 
+    def _extract_vidora_micro_pack_qty(self, text: str | None) -> str | None:
+        """Для Видора микро сохраняет формат упаковки как `21+7` / `24+4` без суммирования."""
+        normalized_text = (text or "").lower().replace("ё", "е")
+        if "видора микро" not in normalized_text:
+            return None
+
+        match = re.search(
+            r"(?:\bN\s*|№\s*)?(\d+)\s*(?:шт\.?)?\s*\+\s*(\d+)\b",
+            normalized_text,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return f"{int(match.group(1))}+{int(match.group(2))}"
+
     def _is_product_page_match(
         self,
         query: ParseQuery,
         page_title: str,
         page_manufacturer: str,
-    ) -> tuple[bool, float, int | None, str | None, str | None, str, bool, int | None]:
+    ) -> tuple[bool, float, int | str | None, str | None, str | None, str, bool, int | None]:
         found_brand = (page_manufacturer or "").strip()
         name_match = name_match_details(
             query.name,
@@ -402,9 +418,16 @@ class Farmacia24Parser:
                 False,
                 None,
             )
+        
+        expected_vidora_qty = self._extract_vidora_micro_pack_qty(query.raw or query.name)
+        found_vidora_qty = self._extract_vidora_micro_pack_qty(page_title)
 
         found_qty, _ = extract_qty_from_xls_row(page_title)
-        expected_qty = query.qty
+        expected_qty: int | str | None = query.qty
+        if expected_vidora_qty is not None:
+            expected_qty = expected_vidora_qty
+            found_qty = found_vidora_qty
+
         qty_score_note = "Score количества: — (в запросе не указано)"
         if expected_qty is not None:
             qty_score = 100 if found_qty == expected_qty else 0
@@ -569,7 +592,7 @@ class Farmacia24Parser:
                         "found_dosage": found_dosage,
                         "found_brand": found_brand,
                         "message": reason,
-                        "input_qty": query.qty,
+                        "input_qty": self._extract_vidora_micro_pack_qty(query.raw or query.name) or query.qty,
                         "input_dosage": extract_dosage_from_xls_row(query.dosage or query.raw or query.name),
                         "dosage_similarity_percent": dosage_percent,
                     },

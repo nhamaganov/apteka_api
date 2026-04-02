@@ -412,6 +412,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             continue
 
         query_qty, query_qty_is_sum = extract_qty_from_xls_row(raw_text)
+        query_qty_pack = extract_qty_pack_format(raw_text)
         query_dosage = _normalize_dosage(extract_dosage_from_xls_row(raw_text))
         query_barcode = _normalize_barcode(df.iat[r, barcode_col]) if barcode_col is not None else ""
         query_product_code = str(df.iat[r, product_code_col]).strip() if product_code_col is not None and not _is_empty(df.iat[r, product_code_col]) else ""
@@ -435,7 +436,18 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
                 continue
 
             qty_matched: list[dict] = []
-            if query_qty is not None:
+            if query_qty_pack is not None:
+                qty_matched = [
+                    c
+                    for c in candidates
+                    if extract_qty_pack_format(str(c.get("input_qty") or "")) == query_qty_pack
+                ]
+                if not qty_matched and query_qty is not None:
+                    qty_matched = [c for c in candidates if c.get("input_qty") == query_qty]
+                if not qty_matched:
+                    no_info_rows_by_code[code].add(r)
+                    continue
+            elif query_qty is not None:
                 qty_matched = [c for c in candidates if c.get("input_qty") == query_qty]
                 if not qty_matched:
                     no_info_rows_by_code[code].add(r)
@@ -759,6 +771,21 @@ def build_flat_xlsx(out_path: str, items: list[dict], city_name: str = "") -> No
     df = pd.DataFrame(items, columns=columns)
     sheet_name = _apteka_title(city_name)[:31] or "Sheet1"
     df.to_excel(out_path, index=False, sheet_name=sheet_name)
+
+
+def extract_qty_pack_format(text: str) -> Optional[str]:
+    """Возвращает количество в формате `X+Y` (например, `21+7`) если оно есть в тексте."""
+    if not text:
+        return None
+
+    match = re.search(
+        r"(?:\bN\s*|№\s*)?(\d+)\s*(?:шт\.?)?\s*\+\s*(\d+)\b",
+        str(text),
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    return f"{int(match.group(1))}+{int(match.group(2))}"
 
 
 def extract_qty_from_xls_row(text: str) -> Tuple[Optional[int], bool]:
