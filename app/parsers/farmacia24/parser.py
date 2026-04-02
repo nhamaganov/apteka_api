@@ -51,7 +51,7 @@ class Farmacia24Parser:
 
         # For windows
         options = Options()
-        options.add_argument("--headless=new")
+        # options.add_argument("--headless=new")
         options.add_argument("--window-size=1400,900")
         return webdriver.Chrome(options=options)
 
@@ -321,9 +321,34 @@ class Farmacia24Parser:
             EC.visibility_of_element_located((By.CSS_SELECTOR, "h1.product-page-info__title"))
         )
 
-    def _extract_product_page_data(self, driver: webdriver.Chrome, timeout: int) -> tuple[str, str]:
+    def _extract_product_page_price(self, driver: webdriver.Chrome) -> str:
+        price_meta = driver.find_elements(By.CSS_SELECTOR, "[itemprop='price']")
+        for el in price_meta:
+            content = (el.get_attribute("content") or "").strip()
+            if content:
+                return content
+            text = (el.text or "").strip()
+            if text:
+                return text
+
+        selectors = (
+            ".product-page-info__price-current",
+            ".product-page-info__price",
+            ".product-card__price",
+            ".product-card__discount-price",
+        )
+        for selector in selectors:
+            elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            for el in elements:
+                text = (el.text or "").strip()
+                if text:
+                    return text
+        return ""
+
+    def _extract_product_page_data(self, driver: webdriver.Chrome, timeout: int) -> tuple[str, str, str]:
         self._wait_product_page_loaded(driver, timeout)
         title = (driver.find_element(By.CSS_SELECTOR, "h1.product-page-info__title").text or "").strip()
+        price = self._extract_product_page_price(driver)
 
         manufacturer = ""
         manufacturer_els = driver.find_elements(
@@ -334,7 +359,7 @@ class Farmacia24Parser:
             if txt:
                 manufacturer = txt
                 break
-        return title, manufacturer
+        return title, manufacturer, price
 
     def _dosage_similarity_percent(self, expected: str | None, found: str | None) -> int:
         expected_norm = (expected or "").strip().lower()
@@ -519,7 +544,7 @@ class Farmacia24Parser:
 
             checked_count += 1
             driver.get(href)
-            page_title, page_manufacturer = self._extract_product_page_data(driver, timeout)
+            page_title, page_manufacturer, page_price = self._extract_product_page_data(driver, timeout)
             matched, score, found_qty, found_dosage, found_brand, reason, perfect_match, dosage_percent = self._is_product_page_match(
                 query, page_title, page_manufacturer
             )
@@ -535,7 +560,7 @@ class Farmacia24Parser:
                     source_pharmacy=self.pharmacy_code,
                     status="matched",
                     title=page_title,
-                    price=(card.get("price") or "").strip(),
+                    price=((card.get("price") or "").strip() or page_price),
                     href=driver.current_url,
                     payload={
                         "result_index": card.get("index"),
