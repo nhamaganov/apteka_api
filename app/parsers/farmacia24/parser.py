@@ -51,7 +51,7 @@ class Farmacia24Parser:
 
         # For windows
         options = Options()
-        # options.add_argument("--headless=new")
+        options.add_argument("--headless=new")
         options.add_argument("--window-size=1400,900")
         return webdriver.Chrome(options=options)
 
@@ -354,7 +354,11 @@ class Farmacia24Parser:
         page_manufacturer: str,
     ) -> tuple[bool, float, int | None, str | None, str | None, str, bool, int | None]:
         found_brand = (page_manufacturer or "").strip()
-        name_match = name_match_details(query.name, page_title)
+        name_match = name_match_details(
+            query.name,
+            page_title,
+            strip_dosage_quantity=True,
+        )
         compared_query_name = name_match.get("query_normalized", "")
         compared_site_name = name_match.get("site_normalized", "")
         name_score_note = (
@@ -496,7 +500,11 @@ class Farmacia24Parser:
         prefiltered_cards: list[dict] = []
         for card in cards:
             card_title = (card.get("title") or "").strip()
-            if not card_title or is_name_match(query.name, card_title):
+            if not card_title or is_name_match(
+                query.name,
+                card_title,
+                strip_dosage_quantity=True,
+            ):
                 prefiltered_cards.append(card)
 
         cards_to_check = prefiltered_cards if prefiltered_cards else cards
