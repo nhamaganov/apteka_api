@@ -355,7 +355,10 @@ class Farmacia24Parser:
     ) -> tuple[bool, float, int | None, str | None, str | None, str, bool, int | None]:
         found_brand = (page_manufacturer or "").strip()
         name_match = name_match_details(query.name, page_title)
+        compared_query_name = name_match.get("query_normalized", "")
+        compared_site_name = name_match.get("site_normalized", "")
         name_score_note = (
+            f"Сравнение названий: query={compared_query_name!r}, site={compared_site_name!r} | "
             f"Score названия: {name_match['score']}% "
             f"(token_set={name_match['token_set_score']}%, partial={name_match['partial_score']}%)"
         )
