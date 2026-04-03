@@ -28,6 +28,34 @@ class Farmacia24Parser:
     base_url = "https://gubernskieapteki.ru/apteki/"
     default_city = "Красноярск"
     site_origin = "https://gubernskieapteki.ru"
+    _QUERY_SERVICE_PATTERNS: tuple[re.Pattern[str], ...] = (
+        re.compile(r"\bпокрытые\s+пленочной\s+оболочкой\b", flags=re.IGNORECASE),
+        re.compile(r"\bс\s+модифицированным\s+высвобождением\b", flags=re.IGNORECASE),
+        re.compile(r"\bмодифицированного\s+высвобождения\b", flags=re.IGNORECASE),
+        re.compile(r"\bпролонгированного\s+действия\b", flags=re.IGNORECASE),
+        re.compile(r"\bпролонгированного\s+высвобождения\b", flags=re.IGNORECASE),
+        re.compile(r"\bдля\s+рассасывания\b", flags=re.IGNORECASE),
+        re.compile(r"\bтаб-?депо\b", flags=re.IGNORECASE),
+        re.compile(r"\bдвухфазные\b", flags=re.IGNORECASE),
+        re.compile(r"\bшипучие\b", flags=re.IGNORECASE),
+        re.compile(r"\bжевательные\b", flags=re.IGNORECASE),
+        re.compile(r"\bтаблетки\b", flags=re.IGNORECASE),
+        re.compile(r"\bтабл\.?\b", flags=re.IGNORECASE),
+        re.compile(r"\bтаб\.\b", flags=re.IGNORECASE),
+        re.compile(r"\bкапсулы\b", flags=re.IGNORECASE),
+        re.compile(r"\bкапс\.?\b", flags=re.IGNORECASE),
+        re.compile(r"\bраствор\b", flags=re.IGNORECASE),
+        re.compile(r"\bлиофилизат\b", flags=re.IGNORECASE),
+        re.compile(r"\bэликсир\b", flags=re.IGNORECASE),
+        re.compile(r"\bпастилки\b", flags=re.IGNORECASE),
+        re.compile(r"\bгранулы\b", flags=re.IGNORECASE),
+        re.compile(r"\bпорошок\b", flags=re.IGNORECASE),
+        re.compile(r"\bсуспензия\b", flags=re.IGNORECASE),
+        re.compile(r"\bкапли\b", flags=re.IGNORECASE),
+        re.compile(r"\bп\.?\s*п/о\b", flags=re.IGNORECASE),
+        re.compile(r"\bп/о\b", flags=re.IGNORECASE),
+        re.compile(r"\bвн\b", flags=re.IGNORECASE),
+    )
 
     def __init__(self) -> None:
         self._driver: webdriver.Chrome | None = None
@@ -211,6 +239,28 @@ class Farmacia24Parser:
                 # На сайте иногда переиспользуется DOM-узел карточек. Это не ошибка.
                 pass
 
+    def _normalize_query_name_for_search(self, name: str) -> str:
+        """
+        Нормализует запрос для farmacia24:
+        1) удаляет служебные слова;
+        2) количество приводит к виду `№N`;
+        3) сохраняет полезный текст после количества.
+        """
+        text = re.sub(r"\s+", " ", str(name or "")).strip()
+        if not text:
+            return ""
+
+        def _replace_qty(match: re.Match[str]) -> str:
+            value = next((group for group in match.groups() if group), "")
+            return f" №{value}" if value else " "
+
+        text = re.sub(r"(?i)\b(?:№\s*(\d+)|n\s*(\d+)|(\d+)\s*шт\.?)\b", _replace_qty, text)
+
+        for pattern in self._QUERY_SERVICE_PATTERNS:
+            text = pattern.sub(" ", text)
+
+        return re.sub(r"\s+", " ", text).strip(" ,.;:-")
+    
     def _wait_loader_to_disappear(self, driver: webdriver.Chrome, timeout: int) -> None:
         """
         После отправки поиска на сайте может появляться оверлей `.loader`.
@@ -706,7 +756,12 @@ class Farmacia24Parser:
             self._ensure_prepared(context)
             driver = self._get_driver()
             timeout = context.timeout or 15
-            query_text = (query.name or "").strip() or (query.raw or "").strip()
+            raw_query_text = (query.name or "").strip() or (query.raw or "").strip()
+            query_text = self._normalize_query_name_for_search(raw_query_text)
+            self._parse_log(
+                context.job_id,
+                f"FARMACIA24_QUERY_NORMALIZE raw={raw_query_text!r} -> normalized={query_text!r}",
+            )
             self._submit_search_by_name(driver, query_text, timeout)
             search_state = self._wait_search_state(driver, timeout)
 
@@ -733,7 +788,12 @@ class Farmacia24Parser:
                 self._ensure_prepared(context)
                 driver = self._get_driver()
                 timeout = context.timeout or 15
-                query_text = (query.name or "").strip() or (query.raw or "").strip()
+                raw_query_text = (query.name or "").strip() or (query.raw or "").strip()
+                query_text = self._normalize_query_name_for_search(raw_query_text)
+                self._parse_log(
+                    context.job_id,
+                    f"FARMACIA24_QUERY_NORMALIZE raw={raw_query_text!r} -> normalized={query_text!r}",
+                )
                 self._submit_search_by_name(driver, query_text, timeout)
                 search_state = self._wait_search_state(driver, timeout)
                 if search_state == "not_found":
