@@ -97,12 +97,44 @@ def _strip_iud_generic_tokens(text: str) -> str:
     return " ".join(tokens)
 
 
-def normalize_product_name(raw: str, job_id: str | None = None, source: str = "") -> str:
+def _strip_dosage_and_quantity_tokens(text: str) -> str:
+    if not text:
+        return ""
+
+    dosage_chunk = (
+        r"\d+(?:\s*[\.,]\s*\d+)?\s*"
+        r"(?:мкг|мг|г|кг|мл|л|ме|ед|iu|ui|%)"
+        r"(?:\s*/\s*(?:мл|л|г|кг))?"
+    )
+    text = re.sub(
+        rf"\b{dosage_chunk}(?:\s*[+xх*]\s*{dosage_chunk})*\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?:№|#)\s*\d+\b", " ", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"\b\d+\s*(?:шт|таб|табл|таблеток|капс|капсул|амп|ампул|пак|пакет|саше|доз)\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def normalize_product_name(
+    raw: str,
+    job_id: str | None = None,
+    source: str = "",
+    strip_dosage_quantity: bool = False,
+) -> str:
     """Нормализует товарное название для сравнения без удаления значимых частей."""
     original = raw or ""
     s = apply_name_patterns(raw)
     s = normalize(s)
     s = re.sub(r"[()\[\]{}]", " ", s)
+    if strip_dosage_quantity:
+        s = _strip_dosage_and_quantity_tokens(s)
     s = re.sub(r"\s+", " ", s).strip()
     if source:
         _log_name_normalization(job_id, f"NORMALIZE {source}: raw={original!r} -> normalized={s!r}")
@@ -305,12 +337,24 @@ def name_match_details(
     min_token_set: int = 70,
     min_partial: int = 70,
     job_id: str | None = None,
+    strip_dosage_quantity: bool = False,
 ) -> dict:
     """
     Возвращает детальный результат сравнения названий.
     """
-    a = normalize_product_name(xls_name, job_id=job_id, source="xls_name")
-    b = normalize_product_name(site_title, job_id=job_id, source="site_title")
+    a = normalize_product_name(
+        xls_name,
+        job_id=job_id,
+        source="xls_name",
+        strip_dosage_quantity=strip_dosage_quantity,
+    )
+    b = normalize_product_name(
+        site_title,
+        job_id=job_id,
+        source="site_title",
+        strip_dosage_quantity=strip_dosage_quantity,
+    )
+
 
     if not a or not b:
         return {
@@ -396,7 +440,8 @@ def name_match_details(
 def is_name_match(xls_name: str, site_title: str,
                   min_token_set: int = 70,
                   min_partial: int = 70,
-                  job_id: str | None = None) -> bool:
+                  job_id: str | None = None,
+                  strip_dosage_quantity: bool = False) -> bool:
     """
     Нестрогое сравнение RapidFuzz, но без склейки разных препаратов:
     - используем token_set_ratio + partial_ratio
@@ -408,5 +453,6 @@ def is_name_match(xls_name: str, site_title: str,
         min_token_set=min_token_set,
         min_partial=min_partial,
         job_id=job_id,
+        strip_dosage_quantity=strip_dosage_quantity,
     )
     return details["matched"]

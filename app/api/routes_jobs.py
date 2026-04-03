@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 
 from app.core.naming import make_display_name
 from app.core.storage import (
-    ensure_job_store, job_dir, log_path, normalization_log_path, pharmeconom_log_path, result_file_path, upload_path, status_path, result_path, write_json, read_json, queries_path
+    ensure_job_store, farmacia24_log_path, job_dir, log_path, normalization_log_path, pharmeconom_log_path, result_file_path, upload_path, status_path, result_path, write_json, read_json, queries_path
 )
 from app.core.models import JobProgress, JobStatus
 from app.core.time import now_iso
@@ -25,7 +25,12 @@ router = APIRouter()
 
 
 @router.post("/", response_model=JobStatus)
-async def create_job(request: Request, file: UploadFile = File(...), city: str = Form("Иркутск")):
+async def create_job(
+    request: Request,
+    file: UploadFile = File(...),
+    city: str = Form("Иркутск"),
+    pharmacy_codes: list[str] = Form(default=["apteka_ru"]),
+):
     """
     Создаёт новую задачу (job) на основе загруженного Excel-файла.
 
@@ -72,7 +77,19 @@ async def create_job(request: Request, file: UploadFile = File(...), city: str =
     product_info_items = fetch_product_info_rows(client, rows)
     queries = build_queries_from_product_info(product_info_items, job_id=job_id)
 
-    write_json(queries_path(job_id), {"queries": queries, "city": city, "product_info": product_info_items})
+    selected_codes = [code.strip().lower() for code in (pharmacy_codes or []) if code.strip()]
+    if not selected_codes:
+        selected_codes = ["apteka_ru"]
+
+    write_json(
+        queries_path(job_id),
+        {
+            "queries": queries,
+            "city": city,
+            "product_info": product_info_items,
+            "pharmacy_codes": selected_codes,
+        },
+    )
 
     for item in product_info_items:
         if item.get("status") == "ok":
@@ -94,6 +111,7 @@ async def create_job(request: Request, file: UploadFile = File(...), city: str =
     data["display_name"] = display_name
     data["filename"] = file.filename
     data["city"] = city
+    data["pharmacy_codes"] = selected_codes
     data["cancelled"] = False
 
     write_json(status_path(job_id), data)
@@ -179,6 +197,21 @@ def get_job_pharmeconom_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
 def get_job_normalization_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
     """Возвращает последние строки отдельного лога нормализации названий."""
     p = normalization_log_path(job_id)
+    if not p.exists():
+        return {"job_id": job_id, "lines": []}
+
+    try:
+        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return {"job_id": job_id, "lines": []}
+
+    return {"job_id": job_id, "lines": lines[-tail:]}
+
+
+@router.get("/{job_id}/farmacia24-log")
+def get_job_farmacia24_log(job_id: str, tail: int = Query(200, ge=1, le=5000)):
+    """Возвращает последние строки отдельного лога парсинга farmacia24."""
+    p = farmacia24_log_path(job_id)
     if not p.exists():
         return {"job_id": job_id, "lines": []}
 

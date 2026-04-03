@@ -81,6 +81,11 @@ def normalization_log_path(job_id: str) -> Path:
     return job_dir(job_id) / "normalization.log"
 
 
+def farmacia24_log_path(job_id: str) -> Path:
+    """Возвращает путь к отдельному логу парсера farmacia24."""
+    return job_dir(job_id) / "farmacia24.log"
+
+
 def list_jobs(limit: int = 20) -> List[Dict[str, Any]]:
     """Возвращает список всех существующих парсингов"""
     ensure_job_store()

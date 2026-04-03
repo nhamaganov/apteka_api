@@ -43,7 +43,12 @@ def index(request: Request):
 
 
 @router.post("/upload")
-async def upload(request: Request, file: UploadFile = File(...), city: str = Form("Иркутск")):
+async def upload(
+    request: Request,
+    file: UploadFile = File(...),
+    city: str = Form("Иркутск"),
+    pharmacy_codes: list[str] = Form(default=["apteka_ru"]),
+):
     """Обрабатывает загрузку Excel в UI и ставит задачу в очередь."""
     ensure_job_store()
 
@@ -70,7 +75,19 @@ async def upload(request: Request, file: UploadFile = File(...), city: str = For
     product_info_items = fetch_product_info_rows(client, rows)
     queries = build_queries_from_product_info(product_info_items)
 
-    write_json(queries_path(job_id), {"queries": queries, "city": city, "product_info": product_info_items})
+    selected_codes = [code.strip().lower() for code in (pharmacy_codes or []) if code.strip()]
+    if not selected_codes:
+        selected_codes = ["apteka_ru"]
+
+    write_json(
+        queries_path(job_id),
+        {
+            "queries": queries,
+            "city": city,
+            "product_info": product_info_items,
+            "pharmacy_codes": selected_codes,
+        },
+    )
 
     for item in product_info_items:
         if item.get("status") == "ok":
@@ -91,6 +108,7 @@ async def upload(request: Request, file: UploadFile = File(...), city: str = For
     data["display_name"] = display_name
     data["filename"] = file.filename
     data["city"] = city
+    data["pharmacy_codes"] = selected_codes
     data["cancelled"] = False
 
     write_json(status_path(job_id), data)
