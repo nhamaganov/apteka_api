@@ -62,27 +62,27 @@ class Farmacia24Parser:
         self._is_prepared = False
 
     def _make_driver(self) -> webdriver.Chrome:
-        # options = Options()
-        # headless_enabled = os.environ.get("FARMACIA24_HEADLESS", "1").strip().lower() not in {"0", "false", "no"}
-        # if headless_enabled:
-        #     options.add_argument("--headless=new")
-        # options.add_argument("--no-sandbox")
-        # options.add_argument("--disable-dev-shm-usage")
-        # options.add_argument("--window-size=1400,900")
+        options = Options()
+        headless_enabled = os.environ.get("FARMACIA24_HEADLESS", "1").strip().lower() not in {"0", "false", "no"}
+        if headless_enabled:
+            options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--window-size=1400,900")
 
-        # chrome_bin = os.environ.get("CHROME_BIN")
-        # if chrome_bin:
-        #     options.binary_location = chrome_bin
+        chrome_bin = os.environ.get("CHROME_BIN")
+        if chrome_bin:
+            options.binary_location = chrome_bin
 
-        # chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-        # service = Service(chromedriver_path)
-        # return webdriver.Chrome(service=service, options=options)
+        chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+        service = Service(chromedriver_path)
+        return webdriver.Chrome(service=service, options=options)
 
         # For windows
-        options = Options()
+        # options = Options()
         # options.add_argument("--headless=new")
-        options.add_argument("--window-size=1400,900")
-        return webdriver.Chrome(options=options)
+        # options.add_argument("--window-size=1400,900")
+        # return webdriver.Chrome(options=options)
 
     def _get_driver(self) -> webdriver.Chrome:
         if self._driver is None:
@@ -682,10 +682,10 @@ class Farmacia24Parser:
             ):
                 prefiltered_cards.append(card)
 
-        cards_to_check = prefiltered_cards if prefiltered_cards else cards
-        if not prefiltered_cards:
-            cards_to_check = cards[:6]
-            reasons.append("предфильтр по названию не сработал, проверяем только первые 6 карточек")
+        cards_to_check = prefiltered_cards
+        if not cards_to_check:
+            reasons.append("предфильтр по названию не сработал, карточки для проверки отсутствуют")
+            return None, "; ".join(reasons)
 
         for card in cards_to_check:
             href = (card.get("href") or "").strip()
