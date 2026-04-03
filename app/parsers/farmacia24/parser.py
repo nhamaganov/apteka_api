@@ -52,7 +52,7 @@ class Farmacia24Parser:
 
         # For windows
         options = Options()
-        # options.add_argument("--headless=new")
+        options.add_argument("--headless=new")
         options.add_argument("--window-size=1400,900")
         return webdriver.Chrome(options=options)
 
@@ -369,9 +369,52 @@ class Farmacia24Parser:
             return 0
         if expected_norm == found_norm:
             return 100
-        if expected_norm in found_norm or found_norm in expected_norm:
-            return 100
+        expected_parts = self._parse_dosage_components(expected_norm)
+        found_parts = self._parse_dosage_components(found_norm)
+        if expected_parts and found_parts:
+            unit_scores: list[int] = []
+            for unit, expected_values in expected_parts.items():
+                found_values = found_parts.get(unit)
+                if not found_values:
+                    return 0
+                unit_scores.append(self._component_values_similarity(expected_values, found_values))
+            if unit_scores:
+                return min(unit_scores)
         return int(round(fuzz.ratio(expected_norm, found_norm)))
+
+    def _parse_dosage_components(self, dosage_text: str) -> dict[str, list[float]]:
+        parts: dict[str, list[float]] = {}
+        for number_raw, unit_raw in re.findall(r"(\d+(?:\.\d+)?)\s*(%|мл|мг|ме)", dosage_text):
+            try:
+                number = float(number_raw)
+            except ValueError:
+                continue
+            unit = unit_raw.lower()
+            parts.setdefault(unit, []).append(number)
+        for unit in parts:
+            parts[unit].sort()
+        return parts
+
+    def _component_values_similarity(self, expected_values: list[float], found_values: list[float]) -> int:
+        if not expected_values or not found_values:
+            return 0
+        pair_count = min(len(expected_values), len(found_values))
+        ratios: list[float] = []
+        for idx in range(pair_count):
+            expected = expected_values[idx]
+            found = found_values[idx]
+            if expected == 0 and found == 0:
+                ratios.append(1.0)
+                continue
+            max_value = max(abs(expected), abs(found))
+            if max_value == 0:
+                ratios.append(1.0)
+                continue
+            ratios.append(min(abs(expected), abs(found)) / max_value)
+        base_similarity = min(ratios) if ratios else 0.0
+        length_penalty = pair_count / max(len(expected_values), len(found_values))
+        return int(round(base_similarity * length_penalty * 100))
+
 
     def _extract_vidora_micro_pack_qty(self, text: str | None) -> str | None:
         """Для Видора микро сохраняет формат упаковки как `21+7` / `24+4` без суммирования."""
@@ -407,7 +450,9 @@ class Farmacia24Parser:
             f"Score названия: {name_match['score']}% "
             f"(token_set={name_match['token_set_score']}%, partial={name_match['partial_score']}%)"
         )
-        if not name_match["matched"]:
+        name_score = float(name_match.get("score", 0) or 0)
+        partial_name_match = (not name_match["matched"]) and 50 < name_score < 70
+        if not name_match["matched"] and not partial_name_match:
             return (
                 False,
                 0.0,
@@ -418,7 +463,9 @@ class Farmacia24Parser:
                 False,
                 None,
             )
-        
+        if partial_name_match:
+            name_score_note += " | Частичное совпадение названия (50–70%)"
+
         expected_vidora_qty = self._extract_vidora_micro_pack_qty(query.raw or query.name)
         found_vidora_qty = self._extract_vidora_micro_pack_qty(page_title)
 
@@ -557,7 +604,8 @@ class Farmacia24Parser:
 
         cards_to_check = prefiltered_cards if prefiltered_cards else cards
         if not prefiltered_cards:
-            reasons.append("предфильтр по названию не сработал, проверяем карточки без фильтра")
+            cards_to_check = cards[:5]
+            reasons.append("предфильтр по названию не сработал, проверяем только первые 5 карточек")
 
         for card in cards_to_check:
             href = (card.get("href") or "").strip()
@@ -579,6 +627,14 @@ class Farmacia24Parser:
                 f"found_brand={found_brand!r} details={reason!r}",
             )
             if matched:
+                name_score_match = re.search(r"Score названия:\s*(\d+(?:[.,]\d+)?)%", reason, flags=re.IGNORECASE)
+                candidate_name_score = None
+                if name_score_match:
+                    try:
+                        candidate_name_score = float(name_score_match.group(1).replace(",", "."))
+                    except ValueError:
+                        candidate_name_score = None
+                candidate_partial_name_match = "частичное совпадение названия" in reason.lower()
                 candidate_item = ParseItem(
                     source_pharmacy=self.pharmacy_code,
                     status="matched",
@@ -588,6 +644,8 @@ class Farmacia24Parser:
                     payload={
                         "result_index": card.get("index"),
                         "score": score,
+                        "name_score": candidate_name_score,
+                        "partial_name_match": candidate_partial_name_match,
                         "found_qty": found_qty,
                         "found_dosage": found_dosage,
                         "found_brand": found_brand,

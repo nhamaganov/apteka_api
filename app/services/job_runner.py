@@ -179,6 +179,10 @@ def _process_job_sync(job_id: str) -> None:
                             "found_dosage": (item.payload or {}).get("found_dosage"),
                             "found_brand": (item.payload or {}).get("found_brand"),
                             "message": ((item.payload or {}).get("message") or outcome_data.error or "").strip(),
+                            "name_score": (item.payload or {}).get("name_score"),
+                            "partial_name_match": (item.payload or {}).get("partial_name_match"),
+                            "dosage_similarity_percent": (item.payload or {}).get("dosage_similarity_percent"),
+
                         }
                         for item in outcome_data.items
                     ]

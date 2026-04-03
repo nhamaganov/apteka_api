@@ -252,6 +252,17 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
         except ValueError:
             return None
 
+    def _extract_name_score(message: object) -> Optional[float]:
+        if message is None:
+            return None
+        match = re.search(r"score названия:\s*(\d+(?:[.,]\d+)?)%", str(message), flags=re.IGNORECASE)
+        if not match:
+            return None
+        try:
+            return float(match.group(1).replace(",", "."))
+        except ValueError:
+            return None
+    
     list_start_row = _find_list_start_row(df)
 
     if list_start_row is not None and list_start_row > header_row + 1:
@@ -503,6 +514,14 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             qty_sum_warning = query_qty_is_sum or ("уточните цену на сайте, возможны неточности" in message_lower)
             manufacturer_score = _extract_manufacturer_score(message_text)
             manufacturer_warning = manufacturer_score is not None and 50 < manufacturer_score < 70
+            name_score_raw = item.get("name_score")
+            try:
+                name_score = float(name_score_raw) if name_score_raw is not None else None
+            except (TypeError, ValueError):
+                name_score = None
+            if name_score is None:
+                name_score = _extract_name_score(message_text)
+            partial_name_warning = bool(item.get("partial_name_match")) or (name_score is not None and 50 < name_score < 70)
 
             expected_dosage = _normalize_dosage(item.get("input_dosage"))
             found_dosage = _normalize_dosage(item.get("found_dosage"))
@@ -518,7 +537,7 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
                 dosage_exact = dosage_no_data or expected_dosage is None or expected_dosage == found_dosage
                 dosage_warning = not dosage_exact
 
-            if qty_sum_warning or dosage_warning or manufacturer_warning:
+            if qty_sum_warning or dosage_warning or manufacturer_warning or partial_name_warning:
                 warning_rows_by_code[code].add(r)
 
     wb = Workbook()
