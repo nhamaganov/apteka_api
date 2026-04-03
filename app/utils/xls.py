@@ -510,10 +510,13 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
 
             message_text = str(item.get("message", ""))
             message_lower = message_text.lower()
-            dosage_no_data = "совпадение дозировки: нет данных" in message_lower
+            dosage_no_data = (
+                "совпадение дозировки: нет данных" in message_lower
+                or "score дозировки: — (нет данных" in message_lower
+            )
             qty_sum_warning = query_qty_is_sum or ("уточните цену на сайте, возможны неточности" in message_lower)
             manufacturer_score = _extract_manufacturer_score(message_text)
-            manufacturer_warning = manufacturer_score is not None and 50 < manufacturer_score < 70
+            manufacturer_warning = manufacturer_score is not None and 50 <= manufacturer_score < 80
             name_score_raw = item.get("name_score")
             try:
                 name_score = float(name_score_raw) if name_score_raw is not None else None
@@ -521,7 +524,12 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
                 name_score = None
             if name_score is None:
                 name_score = _extract_name_score(message_text)
-            partial_name_warning = bool(item.get("partial_name_match")) or (name_score is not None and 50 < name_score < 70)
+            partial_name_warning = bool(item.get("partial_name_match")) or (name_score is not None and 50 < name_score < 90)
+            full_name_match = name_score is not None and name_score >= 90
+            full_manufacturer_match = manufacturer_score is None or manufacturer_score >= 80
+            input_qty = item.get("input_qty")
+            found_qty = item.get("found_qty")
+            qty_exact_match = input_qty is None or input_qty == found_qty
 
             expected_dosage = _normalize_dosage(item.get("input_dosage"))
             found_dosage = _normalize_dosage(item.get("found_dosage"))
@@ -530,12 +538,14 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             if dosage_similarity_percent is not None:
                 try:
                     similarity_value = int(dosage_similarity_percent)
-                    dosage_warning = 50 <= similarity_value <= 90
+                    dosage_warning = 50 <= similarity_value < 100
                 except (TypeError, ValueError):
                     dosage_warning = False
             else:
                 dosage_exact = dosage_no_data or expected_dosage is None or expected_dosage == found_dosage
                 dosage_warning = not dosage_exact
+            if dosage_no_data and full_name_match and full_manufacturer_match and qty_exact_match:
+                dosage_warning = False
 
             if qty_sum_warning or dosage_warning or manufacturer_warning or partial_name_warning:
                 warning_rows_by_code[code].add(r)

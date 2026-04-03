@@ -369,8 +369,22 @@ class Farmacia24Parser:
 
     def _wait_product_page_loaded(self, driver: webdriver.Chrome, timeout: int) -> None:
         self._wait(driver, timeout).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, "h1.product-page-info__title"))
+            EC.visibility_of_element_located((By.CSS_SELECTOR, ".product-page-info__title"))
         )
+
+    def _extract_product_page_title(self, driver: webdriver.Chrome) -> str:
+        title_selectors = (
+            ".product-page-info__title:not(.seoName)",
+            "h1.product-page-info__title:not(.seoName)",
+            ".product-page-info__title",
+        )
+        for selector in title_selectors:
+            title_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            for el in title_elements:
+                txt = (el.text or "").strip()
+                if txt:
+                    return txt
+        return ""
 
     def _extract_product_page_price(self, driver: webdriver.Chrome) -> str:
         price_meta = driver.find_elements(By.CSS_SELECTOR, "[itemprop='price']")
@@ -408,7 +422,7 @@ class Farmacia24Parser:
 
     def _extract_product_page_data(self, driver: webdriver.Chrome, timeout: int) -> tuple[str, str, str]:
         self._wait_product_page_loaded(driver, timeout)
-        title = (driver.find_element(By.CSS_SELECTOR, "h1.product-page-info__title").text or "").strip()
+        title = self._extract_product_page_title(driver)
         price = "нет в наличии" if self._is_product_unavailable(driver) else self._extract_product_page_price(driver)
 
         manufacturer = ""
@@ -511,8 +525,9 @@ class Farmacia24Parser:
             f"(token_set={name_match['token_set_score']}%, partial={name_match['partial_score']}%)"
         )
         name_score = float(name_match.get("score", 0) or 0)
-        partial_name_match = (not name_match["matched"]) and 50 < name_score < 70
-        if not name_match["matched"] and not partial_name_match:
+        full_name_match = name_score >= 90
+        partial_name_match = 50 < name_score < 90
+        if not full_name_match and not partial_name_match:
             return (
                 False,
                 0.0,
@@ -524,7 +539,7 @@ class Farmacia24Parser:
                 None,
             )
         if partial_name_match:
-            name_score_note += " | Частичное совпадение названия (50–70%)"
+            name_score_note += " | Частичное совпадение названия (51–89%)"
 
         expected_vidora_qty = self._extract_vidora_micro_pack_qty(query.raw or query.name)
         found_vidora_qty = self._extract_vidora_micro_pack_qty(page_title)
@@ -593,7 +608,14 @@ class Farmacia24Parser:
                 f"Score производителя: {manufacturer_match['score']}% "
                 f"(порог={manufacturer_match['threshold']}%)"
             )
-        if manufacturer_match["reason"] != "query_manufacturer_empty" and not manufacturer_match["matched"]:
+        manufacturer_score = manufacturer_match["score"] if manufacturer_match["reason"] != "query_manufacturer_empty" else 100
+        full_manufacturer_match = (
+            manufacturer_match["reason"] == "query_manufacturer_empty" or manufacturer_score >= 80
+        )
+        partial_manufacturer_match = (
+            manufacturer_match["reason"] != "query_manufacturer_empty" and 50 <= manufacturer_score < 80
+        )
+        if manufacturer_match["reason"] != "query_manufacturer_empty" and not partial_manufacturer_match and not full_manufacturer_match:
             return (
                 False,
                 0.0,
@@ -605,7 +627,7 @@ class Farmacia24Parser:
                 dosage_percent,
             )
 
-        criteria_scores: list[float] = []
+        criteria_scores: list[float] = [name_score / 100.0]
         notes: list[str] = [name_score_note, qty_score_note, dosage_note, manufacturer_score_note]
 
         if expected_qty is not None:
@@ -613,7 +635,7 @@ class Farmacia24Parser:
         if expected_dosage and dosage_score is not None:
             criteria_scores.append(dosage_score)
         if manufacturer_match["reason"] != "query_manufacturer_empty":
-            criteria_scores.append(manufacturer_match["score"] / 100.0)
+            criteria_scores.append(manufacturer_score / 100.0)
 
         score = sum(criteria_scores) / len(criteria_scores) if criteria_scores else 1.0
         if score < 0.7:
@@ -625,12 +647,10 @@ class Farmacia24Parser:
             and (
                 not expected_dosage
                 or dosage_percent is None
-                or dosage_percent > 90
+                or dosage_percent == 100
             )
-            and (
-                manufacturer_match["reason"] == "query_manufacturer_empty"
-                or manufacturer_match["matched"]
-            )
+            and full_name_match
+            and full_manufacturer_match
         )
         note = " | ".join([n for n in notes if n]) or "совпадение найдено"
         return True, score, found_qty, found_dosage, found_brand, note, perfect_match, dosage_percent
@@ -664,8 +684,8 @@ class Farmacia24Parser:
 
         cards_to_check = prefiltered_cards if prefiltered_cards else cards
         if not prefiltered_cards:
-            cards_to_check = cards[:5]
-            reasons.append("предфильтр по названию не сработал, проверяем только первые 5 карточек")
+            cards_to_check = cards[:6]
+            reasons.append("предфильтр по названию не сработал, проверяем только первые 6 карточек")
 
         for card in cards_to_check:
             href = (card.get("href") or "").strip()
