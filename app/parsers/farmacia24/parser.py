@@ -80,7 +80,7 @@ class Farmacia24Parser:
 
         # For windows
         options = Options()
-        options.add_argument("--headless=new")
+        # options.add_argument("--headless=new")
         options.add_argument("--window-size=1400,900")
         return webdriver.Chrome(options=options)
 
@@ -396,10 +396,20 @@ class Farmacia24Parser:
                     return text
         return ""
 
+    def _is_product_unavailable(self, driver: webdriver.Chrome) -> bool:
+        unavailable_blocks = driver.find_elements(By.CSS_SELECTOR, ".product-page-info.not-available")
+        for block in unavailable_blocks:
+            try:
+                if block.is_displayed():
+                    return True
+            except Exception:
+                continue
+        return False
+
     def _extract_product_page_data(self, driver: webdriver.Chrome, timeout: int) -> tuple[str, str, str]:
         self._wait_product_page_loaded(driver, timeout)
         title = (driver.find_element(By.CSS_SELECTOR, "h1.product-page-info__title").text or "").strip()
-        price = self._extract_product_page_price(driver)
+        price = "нет в наличии" if self._is_product_unavailable(driver) else self._extract_product_page_price(driver)
 
         manufacturer = ""
         manufacturer_els = driver.find_elements(
@@ -689,7 +699,11 @@ class Farmacia24Parser:
                     source_pharmacy=self.pharmacy_code,
                     status="matched",
                     title=page_title,
-                    price=((card.get("price") or "").strip() or page_price),
+                    price=(
+                        page_price
+                        if page_price == "нет в наличии"
+                        else ((card.get("price") or "").strip() or page_price)
+                    ),
                     href=driver.current_url,
                     payload={
                         "result_index": card.get("index"),
