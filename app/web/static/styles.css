@@ -73,6 +73,55 @@ a:hover { text-decoration: underline; }
   font-size: 11px;
 }
 
+.progress-main {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+.progress-cell {
+  text-align: center;
+}
+
+.progress-metrics {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.progress-metric {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+  border: 1px solid transparent;
+}
+
+.metric-found {
+  color: #166534;
+  border-color: rgba(34, 197, 94, 0.22);
+  background: rgba(34, 197, 94, 0.10);
+}
+
+.metric-not-found {
+  color: #475569;
+  border-color: rgba(100, 116, 139, 0.24);
+  background: rgba(100, 116, 139, 0.12);
+}
+
+.metric-failed {
+  color: #b91c1c;
+  border-color: rgba(239, 68, 68, 0.22);
+  background: rgba(239, 68, 68, 0.12);
+}
+
 /* ---------- Cards / boxes ---------- */
 .box {
   background: var(--card);
@@ -374,6 +423,27 @@ button.btn-sm:disabled:hover {
 .tbl .col-status { width: 110px; }
 .tbl .col-created { width: 220px; }
 
+.pharmacy-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 190px;
+}
+
+.pharmacy-pill {
+  display: inline-block;
+  max-width: 86px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  background: rgba(15, 23, 42, 0.03);
+  font-size: 11px;
+  color: #334155;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- Log box ---------- */
 .logbox {
   height: 280px;
@@ -445,7 +515,7 @@ button.btn-sm:disabled:hover {
 @media (max-width: 740px) {
   .wrap { padding: 0 12px; margin: 18px auto 36px; }
   .grid { grid-template-columns: 1fr; }
-  .tbl th:nth-child(4), .tbl td:nth-child(4) { display: none; } /* hide created_at on narrow screens */
+  .tbl th:nth-child(5), .tbl td:nth-child(5) { display: none; } /* hide progress on narrow screens */
   .actions-row { align-items: stretch; }
   .actions-delete { margin-left: 0; }
 }

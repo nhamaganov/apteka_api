@@ -12,6 +12,10 @@
   "failed": "Ошибка",
   "cancelled": "Остановлено",
 } %}
+{% set PHARMACY_LABELS = {
+  "apteka_ru": "apteka.ru",
+  "farmacia24": "24 Farmacia",
+} %}
 <body>
   {% include "_header.html" %}
   <div class="wrap">
@@ -49,6 +53,7 @@
             <th>Название</th>
             <th>Статус</th>
             <th>Город</th>
+            <th>Аптеки</th>
             <th>Прогресс</th>
             <th>Дата запуска</th>
             <th>Действия</th>
@@ -76,15 +81,38 @@
 
               <td>{{ j.city or "-" }}</td>
         
+              {% set ns = namespace(names=[]) %}
+              {% for code in (j.pharmacy_codes or []) %}
+                {% set normalized = (code|string).strip().lower() %}
+                {% if normalized %}
+                  {% set _ = ns.names.append(PHARMACY_LABELS.get(normalized, code)) %}
+                {% endif %}
+              {% endfor %}
+              {% set pharmacies_title = ns.names|join(", ") %}
               <td>
-                {% if j.progress %}
-                  <div>
-                    <b>{{ j.progress.processed or 0 }}</b> из <b>{{ j.progress.total or 0 }}</b>
+                {% if ns.names %}
+                  <div class="pharmacy-pills" title="{{ pharmacies_title }}">
+                    {% for name in ns.names[:2] %}
+                      <span class="pharmacy-pill" title="{{ name }}">{{ name }}</span>
+                    {% endfor %}
+                    {% if ns.names|length > 2 %}
+                      <span class="pharmacy-pill">+{{ ns.names|length - 2 }}</span>
+                    {% endif %}
                   </div>
-                  <div class="hint progress-details">
-                    <div>Найдено: {{ j.progress.matched or 0}}</div>
-                    <div>Не найдено: {{ j.progress.not_found or 0}}</div>
-                    <div>Ошибки: {{ j.progress.failed or 0}}</div>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+        
+              <td class="progress-cell">
+                {% if j.progress %}
+                  <div class="progress-main">
+                    {{ j.progress.processed or 0 }} из {{ j.progress.total or 0 }}
+                  </div>
+                  <div class="progress-metrics" aria-label="Найдено / Не найдено / Ошибки">
+                    <span class="progress-metric metric-found" title="Найдено">{{ j.progress.matched or 0 }}</span>
+                    <span class="progress-metric metric-not-found" title="Не найдено">{{ j.progress.not_found or 0 }}</span>
+                    <span class="progress-metric metric-failed" title="Ошибки">{{ j.progress.failed or 0 }}</span>
                   </div>
                 {% else %}
                   -
