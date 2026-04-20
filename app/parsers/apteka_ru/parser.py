@@ -112,7 +112,7 @@ def get_first_card_title(driver) -> str:
     if not cards:
         return ""
     try:
-        title_el = cards[0].find_element(By.CSS_SELECTOR, "span.catalog-card__name.emphasis")
+        title_el = cards[0].find_element(By.CSS_SELECTOR, ".catalog-card__name.emphasis")
         return (title_el.get_attribute("title") or title_el.text or "").strip()
     except Exception:
         return ""
@@ -635,7 +635,9 @@ def is_dosage_compatible(expected: Optional[str], found: Optional[str]) -> bool:
     if not expected_parts or not found_parts:
         return False
 
-    return expected_parts.issubset(found_parts)
+    if len(expected_parts) <= len(found_parts):
+        return expected_parts.issubset(found_parts)
+    return found_parts.issubset(expected_parts)
 
 
 def get_variants_from_product_page(driver) -> List[Variant]:
@@ -1114,7 +1116,7 @@ def _collect_matching_card_links(
 
     for card in cards:
         try:
-            title_el = card.find_element(By.CSS_SELECTOR, "span.catalog-card__name.emphasis")
+            title_el = card.find_element(By.CSS_SELECTOR, ".catalog-card__name.emphasis")
             title = (title_el.get_attribute("title") or title_el.text or "").strip()
             if not title or "набор" in title.lower():
                 continue

@@ -438,8 +438,8 @@ def name_match_details(
 
 
 def is_name_match(xls_name: str, site_title: str,
-                  min_token_set: int = 70,
-                  min_partial: int = 70,
+                  min_token_set: int = 65,
+                  min_partial: int = 65,
                   job_id: str | None = None,
                   strip_dosage_quantity: bool = False) -> bool:
     """
