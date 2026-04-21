@@ -55,7 +55,7 @@ def _process_job_sync(job_id: str) -> None:
         write_json(status_path(job_id), status)
 
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "cancelled": True})
-        _write_result_csv(job_id, all_items, status, selected_city)
+        _write_result_csv(job_id, all_items, status, selected_city, pharmacy_codes)
         job_log(job_id, "JOB cancelled by user")
 
     try:
@@ -299,7 +299,7 @@ def _process_job_sync(job_id: str) -> None:
 
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items})
 
-        _write_result_csv(job_id, all_items, status, selected_city)
+        _write_result_csv(job_id, all_items, status, selected_city, pharmacy_codes)
 
         if cancel_requested():
             finalize_cancel()
@@ -319,7 +319,7 @@ def _process_job_sync(job_id: str) -> None:
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "error": str(e)})
 
         try:
-            _write_result_csv(job_id, all_items, status, selected_city)
+            _write_result_csv(job_id, all_items, status, selected_city, pharmacy_codes)
         except Exception:
             pass
 
@@ -397,14 +397,26 @@ def farmacia24_log(job_id: str, msg: str) -> None:
         f.write(line)
 
 
-def _write_result_csv(job_id: str, all_items: List[Dict], status: Dict, city_name: str = "") -> None:
+def _write_result_csv(
+    job_id: str,
+    all_items: List[Dict],
+    status: Dict,
+    city_name: str = "",
+    pharmacy_codes: List[str] | None = None,
+) -> None:
     """Пишет итоговый XLSX: сначала пытается обогатить исходную таблицу, иначе пишет плоскую таблицу."""
     filename = status.get("filename")
     if filename:
         src = upload_path(job_id, filename)
         if src.exists():
             try:
-                build_enriched_xlsx(str(src), str(result_file_path(job_id)), all_items, city_name)
+                build_enriched_xlsx(
+                    str(src),
+                    str(result_file_path(job_id)),
+                    all_items,
+                    city_name,
+                    pharmacy_codes,
+                )
                 return
             except Exception as exc:
                 job_log(job_id, f"Failed to build enriched xlsx: {exc}")

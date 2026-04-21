@@ -143,8 +143,13 @@ def _apteka_title(city_name: str) -> str:
     return f"Apteka Ru - {normalized_city}" if normalized_city else "Apteka Ru"
 
 
-def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: str = "") -> None:
-
+def build_enriched_xlsx(
+    path: str,
+    out_path: str,
+    items: list[dict],
+    city_name: str = "",
+    pharmacy_codes: Optional[list[str]] = None,
+) -> None:
     """Дополняет исходную таблицу результатами парсинга и сохраняет как XLSX."""
     df = read_spreadsheet(path)
 
@@ -314,11 +319,24 @@ def build_enriched_xlsx(path: str, out_path: str, items: list[dict], city_name: 
             return "24 Farmacia"
         return code.replace("_", " ").title()
 
-    pharmacy_codes: list[str] = ["apteka_ru", "farmacia24"]
-    for item in items:
-        code = _normalize_pharmacy_code(item.get("source_pharmacy"))
-        if code and code not in pharmacy_codes:
-            pharmacy_codes.append(code)
+    selected_codes = [
+        _normalize_pharmacy_code(code)
+        for code in (pharmacy_codes or [])
+        if _normalize_pharmacy_code(code)
+    ]
+    if selected_codes:
+        pharmacy_codes = []
+        for code in selected_codes:
+            if code not in pharmacy_codes:
+                pharmacy_codes.append(code)
+    else:
+        pharmacy_codes = []
+        for item in items:
+            code = _normalize_pharmacy_code(item.get("source_pharmacy")) or "apteka_ru"
+            if code not in pharmacy_codes:
+                pharmacy_codes.append(code)
+        if not pharmacy_codes:
+            pharmacy_codes = ["apteka_ru"]
 
     pharmacy_items: dict[str, list[dict]] = {code: [] for code in pharmacy_codes}
     for item in items:
