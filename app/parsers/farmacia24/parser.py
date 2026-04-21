@@ -675,7 +675,10 @@ class Farmacia24Parser:
         prefiltered_cards: list[dict] = []
         for card in cards:
             card_title = (card.get("title") or "").strip()
-            if not card_title or is_name_match(
+            if not card_title:
+                reasons.append(f"card[{card.get('index')}]: пропущена — пустой заголовок")
+                continue
+            if is_name_match(
                 query.name,
                 card_title,
                 strip_dosage_quantity=True,
