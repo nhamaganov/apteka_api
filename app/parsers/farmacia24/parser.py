@@ -12,6 +12,7 @@ from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -213,17 +214,8 @@ class Farmacia24Parser:
         search_input = self._wait(driver, timeout).until(
             EC.visibility_of_element_located((By.CSS_SELECTOR, ".header-search__input"))
         )
-        search_input.click()
-        search_input.clear()
-        search_input.send_keys(normalized_query)
+        self._set_search_input_value(driver, search_input, normalized_query, timeout)
         self._human_delay()
-
-        self._wait(driver, timeout).until(
-            lambda _driver: (
-                (_driver.find_element(By.CSS_SELECTOR, ".header-search__input").get_attribute("value") or "").strip()
-                == normalized_query
-            )
-        )
 
         previous_card = self._first_visible_result_card(driver)
         search_button = self._wait(driver, timeout).until(
@@ -299,12 +291,9 @@ class Farmacia24Parser:
             EC.visibility_of_element_located((By.CSS_SELECTOR, ".header-search__input"))
         )
         prefix_query = self._build_dropdown_query_prefix(normalized_query)
-        search_input.click()
-        search_input.clear()
-        search_input.send_keys(prefix_query)
-        time.sleep(0.9)
+        self._set_search_input_value(driver, search_input, prefix_query, timeout, retries=2)
 
-        dropdown_items = self._extract_dropdown_items(driver)
+        dropdown_items = self._wait_dropdown_items_or_stable_empty(driver, timeout)
         if not dropdown_items:
             return False, f"dropdown не показал вариантов для запроса {prefix_query!r}"
 
@@ -334,6 +323,80 @@ class Farmacia24Parser:
                     f"query={prefix_query!r})"
                 )
         return False, f"не удалось найти элемент dropdown для клика: {best_choice['title']!r}"
+
+    def _clear_search_input_hard(self, driver: webdriver.Chrome, search_input, timeout: int) -> None:
+        def _input_value() -> str:
+            return (driver.find_element(By.CSS_SELECTOR, ".header-search__input").get_attribute("value") or "").strip()
+
+        search_input.click()
+        search_input.clear()
+        search_input.send_keys(Keys.CONTROL, "a")
+        search_input.send_keys(Keys.DELETE)
+        search_input.send_keys(Keys.BACKSPACE)
+
+        try:
+            self._wait(driver, min(timeout, 2)).until(lambda _driver: _input_value() == "")
+            return
+        except TimeoutException:
+            pass
+
+        driver.execute_script(
+            """
+            const el = arguments[0];
+            el.value = '';
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            """,
+            search_input,
+        )
+        self._wait(driver, min(timeout, 2)).until(lambda _driver: _input_value() == "")
+
+    def _set_search_input_value(
+        self,
+        driver: webdriver.Chrome,
+        search_input,
+        expected_value: str,
+        timeout: int,
+        retries: int = 3,
+    ) -> None:
+        normalized_expected = (expected_value or "").strip()
+        last_seen_value = ""
+        attempts = max(1, retries)
+        for attempt in range(attempts):
+            self._clear_search_input_hard(driver, search_input, timeout)
+            search_input.send_keys(normalized_expected)
+            try:
+                self._wait(driver, min(timeout, 3)).until(
+                    lambda _driver: (
+                        (_driver.find_element(By.CSS_SELECTOR, ".header-search__input").get_attribute("value") or "").strip()
+                        == normalized_expected
+                    )
+                )
+                return
+            except TimeoutException:
+                last_seen_value = (
+                    driver.find_element(By.CSS_SELECTOR, ".header-search__input").get_attribute("value") or ""
+                ).strip()
+                if attempt == attempts - 1:
+                    raise TimeoutException(
+                        f"search input mismatch after retries: expected={normalized_expected!r}, actual={last_seen_value!r}"
+                    )
+                continue
+
+    def _wait_dropdown_items_or_stable_empty(self, driver: webdriver.Chrome, timeout: int) -> list[dict]:
+        deadline = time.time() + max(1.5, min(float(timeout), 8.0))
+        stable_empty_ticks = 0
+
+        while time.time() < deadline:
+            items = self._extract_dropdown_items(driver)
+            if items:
+                return items
+            stable_empty_ticks += 1
+            if stable_empty_ticks >= 4:
+                break
+            time.sleep(0.2)
+
+        return []
 
     def _build_dropdown_query_prefix(self, query_text: str) -> str:
         """
