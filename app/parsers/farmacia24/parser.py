@@ -799,6 +799,9 @@ class Farmacia24Parser:
         best_score = -1.0
 
         prefiltered_cards: list[dict] = []
+        expected_vidora_qty = self._extract_vidora_micro_pack_qty(query.raw or query.name)
+        expected_qty: int | str | None = expected_vidora_qty or query.qty
+        expected_dosage = extract_dosage_from_xls_row(query.dosage or query.raw or query.name)
         for card in cards:
             card_title = (card.get("title") or "").strip()
             if not card_title:
@@ -809,6 +812,28 @@ class Farmacia24Parser:
                 card_title,
                 strip_dosage_quantity=True,
             ):
+                found_vidora_qty = self._extract_vidora_micro_pack_qty(card_title)
+                found_qty, _ = extract_qty_from_xls_row(card_title)
+                if expected_vidora_qty is not None:
+                    found_qty = found_vidora_qty
+                if expected_qty is not None and found_qty is not None and found_qty != expected_qty:
+                    reasons.append(
+                        f"card[{card.get('index')}]: отсеяна по количеству в заголовке "
+                        f"(ожидалось {expected_qty}, найдено {found_qty}) | title={card_title!r}"
+                    )
+                    continue
+
+                found_dosage = extract_dosage_from_xls_row(card_title)
+                if expected_dosage and found_dosage:
+                    dosage_percent = self._dosage_similarity_percent(expected_dosage, found_dosage)
+                    if dosage_percent < 50:
+                        reasons.append(
+                            f"card[{card.get('index')}]: отсеяна по дозировке в заголовке "
+                            f"(ожидалось {expected_dosage}, найдено {found_dosage}, score={dosage_percent}%) "
+                            f"| title={card_title!r}"
+                        )
+                        continue
+                    
                 prefiltered_cards.append(card)
 
         cards_to_check = prefiltered_cards
