@@ -239,6 +239,132 @@ class Farmacia24Parser:
                 # На сайте иногда переиспользуется DOM-узел карточек. Это не ошибка.
                 pass
 
+    def _extract_dropdown_items(self, driver: webdriver.Chrome) -> list[dict]:
+        containers = driver.find_elements(By.CSS_SELECTOR, ".header-search__item-container")
+        items: list[dict] = []
+        for container in containers:
+            links = container.find_elements(By.CSS_SELECTOR, ".header-search__item-link")
+            for link in links:
+                title = (link.text or "").strip()
+                if not title:
+                    continue
+                items.append({"element": link, "title": title})
+        return items
+
+    def _score_dropdown_item(self, query: ParseQuery, title: str) -> float:
+        name_details = name_match_details(
+            query.name,
+            title,
+            strip_dosage_quantity=True,
+        )
+        name_score = float(name_details.get("score", 0) or 0)
+        if name_score < 50:
+            return 0.0
+
+        expected_qty = self._extract_vidora_micro_pack_qty(query.raw or query.name) or query.qty
+        found_qty, _ = extract_qty_from_xls_row(title)
+        qty_score: float | None = None
+        if expected_qty is not None:
+            qty_score = 100.0 if found_qty == expected_qty else 0.0
+            if qty_score == 0:
+                return 0.0
+
+        expected_dosage = extract_dosage_from_xls_row(query.dosage or query.raw or query.name)
+        found_dosage = extract_dosage_from_xls_row(title)
+        dosage_score: float | None = None
+        if expected_dosage:
+            if not found_dosage:
+                dosage_score = 0.0
+            else:
+                dosage_score = float(self._dosage_similarity_percent(expected_dosage, found_dosage))
+            if dosage_score < 50:
+                return 0.0
+
+        weighted_sum = name_score * 0.7
+        total_weight = 0.7
+        if qty_score is not None:
+            weighted_sum += qty_score * 0.15
+            total_weight += 0.15
+        if dosage_score is not None:
+            weighted_sum += dosage_score * 0.15
+            total_weight += 0.15
+        return weighted_sum / total_weight if total_weight else 0.0
+
+    def _submit_search_via_dropdown(self, driver: webdriver.Chrome, query: ParseQuery, query_text: str, timeout: int) -> tuple[bool, str]:
+        normalized_query = re.sub(r"\s+", " ", str(query_text or "")).strip()
+        if not normalized_query:
+            return False, "пустой поисковый запрос"
+
+        search_input = self._wait(driver, timeout).until(
+            EC.visibility_of_element_located((By.CSS_SELECTOR, ".header-search__input"))
+        )
+        prefix_query = self._build_dropdown_query_prefix(normalized_query)
+        search_input.click()
+        search_input.clear()
+        search_input.send_keys(prefix_query)
+        time.sleep(0.9)
+
+        dropdown_items = self._extract_dropdown_items(driver)
+        if not dropdown_items:
+            return False, f"dropdown не показал вариантов для запроса {prefix_query!r}"
+
+        best_choice: dict | None = None
+        for item in dropdown_items:
+            score = self._score_dropdown_item(query, item["title"])
+            if score <= 0:
+                continue
+            if best_choice is None or score > best_choice["score"]:
+                best_choice = {
+                    "title": item["title"],
+                    "score": score,
+                }
+
+        if best_choice is None:
+            return False, f"варианты dropdown не прошли отбор для запроса {prefix_query!r}"
+        if best_choice["score"] < 85:
+            return False, f"лучший вариант в dropdown ниже порога: {best_choice['title']!r} (score={best_choice['score']:.1f})"
+
+        refreshed_items = self._extract_dropdown_items(driver)
+        for item in refreshed_items:
+            if item["title"] == best_choice["title"]:
+                driver.execute_script("arguments[0].click();", item["element"])
+                self._wait_loader_to_disappear(driver, timeout)
+                return True, (
+                    f"выбран вариант из dropdown: {best_choice['title']!r} (score={best_choice['score']:.1f}, "
+                    f"query={prefix_query!r})"
+                )
+        return False, f"не удалось найти элемент dropdown для клика: {best_choice['title']!r}"
+
+    def _build_dropdown_query_prefix(self, query_text: str) -> str:
+        """
+        Для dropdown вводим только префикс запроса:
+        - текст до первого служебного слова/фразы (таблетки, капсулы, раствор и т.д.);
+        - если служебное слово не найдено, берём половину названия по словам.
+        """
+        text = re.sub(r"\s+", " ", str(query_text or "")).strip(" ,.;:-")
+        if not text:
+            return ""
+
+        earliest_start: int | None = None
+        for pattern in self._QUERY_SERVICE_PATTERNS:
+            match = pattern.search(text)
+            if not match:
+                continue
+            start_idx = match.start()
+            if earliest_start is None or start_idx < earliest_start:
+                earliest_start = start_idx
+
+        if earliest_start is not None:
+            prefix = text[:earliest_start].strip(" ,.;:-")
+            if prefix:
+                return prefix
+
+        words = [word for word in text.split(" ") if word]
+        if not words:
+            return text
+        half_count = max(1, len(words) // 2)
+        return " ".join(words[:half_count]).strip(" ,.;:-")
+
     def _normalize_query_name_for_search(self, name: str) -> str:
         """
         Нормализует запрос для farmacia24:
@@ -799,6 +925,57 @@ class Farmacia24Parser:
                 context.job_id,
                 f"FARMACIA24_QUERY_NORMALIZE raw={raw_query_text!r} -> normalized={query_text!r}",
             )
+            selected_from_dropdown, dropdown_message = self._submit_search_via_dropdown(
+                driver, query, raw_query_text, timeout
+            )
+            self._parse_log(context.job_id, f"FARMACIA24_DROPDOWN {dropdown_message}")
+            if selected_from_dropdown:
+                try:
+                    self._wait_product_page_loaded(driver, min(timeout, 6))
+                    page_title, page_manufacturer, page_price = self._extract_product_page_data(driver, timeout)
+                    matched, score, found_qty, found_dosage, found_brand, reason, _, dosage_percent = self._is_product_page_match(
+                        query, page_title, page_manufacturer
+                    )
+                    self._parse_log(
+                        context.job_id,
+                        "FARMACIA24_DROPDOWN_PAGE_MATCH "
+                        f"matched={matched} score={score:.3f} title={page_title!r} reason={reason!r}",
+                    )
+                    if matched:
+                        return ParseOutcome(
+                            status="matched",
+                            items=[
+                                ParseItem(
+                                    source_pharmacy=self.pharmacy_code,
+                                    status="matched",
+                                    title=page_title,
+                                    price=page_price,
+                                    href=driver.current_url,
+                                    payload={
+                                        "score": score,
+                                        "found_qty": found_qty,
+                                        "found_dosage": found_dosage,
+                                        "found_brand": found_brand,
+                                        "message": reason,
+                                        "input_qty": self._extract_vidora_micro_pack_qty(query.raw or query.name) or query.qty,
+                                        "input_dosage": extract_dosage_from_xls_row(query.dosage or query.raw or query.name),
+                                        "dosage_similarity_percent": dosage_percent,
+                                        "selected_via_dropdown": True,
+                                    },
+                                )
+                            ],
+                            error="",
+                        )
+                    self._parse_log(
+                        context.job_id,
+                        "FARMACIA24_DROPDOWN_FALLBACK mismatch after dropdown click, using standard search flow",
+                    )
+                except TimeoutException:
+                    self._parse_log(
+                        context.job_id,
+                        "FARMACIA24_DROPDOWN_FALLBACK no product page after dropdown click, using standard search flow",
+                    )
+
             self._submit_search_by_name(driver, query_text, timeout)
             search_state = self._wait_search_state(driver, timeout)
 
@@ -831,6 +1008,57 @@ class Farmacia24Parser:
                     context.job_id,
                     f"FARMACIA24_QUERY_NORMALIZE raw={raw_query_text!r} -> normalized={query_text!r}",
                 )
+                selected_from_dropdown, dropdown_message = self._submit_search_via_dropdown(
+                    driver, query, raw_query_text, timeout
+                )
+                self._parse_log(context.job_id, f"FARMACIA24_DROPDOWN {dropdown_message}")
+                if selected_from_dropdown:
+                    try:
+                        self._wait_product_page_loaded(driver, min(timeout, 6))
+                        page_title, page_manufacturer, page_price = self._extract_product_page_data(driver, timeout)
+                        matched, score, found_qty, found_dosage, found_brand, reason, _, dosage_percent = self._is_product_page_match(
+                            query, page_title, page_manufacturer
+                        )
+                        self._parse_log(
+                            context.job_id,
+                            "FARMACIA24_DROPDOWN_PAGE_MATCH "
+                            f"matched={matched} score={score:.3f} title={page_title!r} reason={reason!r}",
+                        )
+                        if matched:
+                            return ParseOutcome(
+                                status="matched",
+                                items=[
+                                    ParseItem(
+                                        source_pharmacy=self.pharmacy_code,
+                                        status="matched",
+                                        title=page_title,
+                                        price=page_price,
+                                        href=driver.current_url,
+                                        payload={
+                                            "score": score,
+                                            "found_qty": found_qty,
+                                            "found_dosage": found_dosage,
+                                            "found_brand": found_brand,
+                                            "message": reason,
+                                            "input_qty": self._extract_vidora_micro_pack_qty(query.raw or query.name) or query.qty,
+                                            "input_dosage": extract_dosage_from_xls_row(query.dosage or query.raw or query.name),
+                                            "dosage_similarity_percent": dosage_percent,
+                                            "selected_via_dropdown": True,
+                                        },
+                                    )
+                                ],
+                                error="",
+                            )
+                        self._parse_log(
+                            context.job_id,
+                            "FARMACIA24_DROPDOWN_FALLBACK mismatch after dropdown click, using standard search flow",
+                        )
+                    except TimeoutException:
+                        self._parse_log(
+                            context.job_id,
+                            "FARMACIA24_DROPDOWN_FALLBACK no product page after dropdown click, using standard search flow",
+                        )
+
                 self._submit_search_by_name(driver, query_text, timeout)
                 search_state = self._wait_search_state(driver, timeout)
                 if search_state == "not_found":
