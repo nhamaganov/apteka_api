@@ -304,8 +304,8 @@ def build_enriched_xlsx(
         "Отклонение от нашего сайта",
     ]
     apteka_extra_headers = [
+        "Оригинальные названия",
         "Найденный товар",
-        "Цена",
         "Сообщение",
     ]
 
@@ -520,12 +520,6 @@ def build_enriched_xlsx(
                 if site_price is not None and parsed_price_num is not None:
                     site_markup_formula_rows_by_code[code].append(r)
 
-            apteka_rows_by_code[code][r] = [
-                item.get("title", ""),
-                item.get("price", ""),
-                item.get("message", ""),
-            ]
-
             message_text = str(item.get("message", ""))
             message_lower = message_text.lower()
             dosage_no_data = (
@@ -564,9 +558,27 @@ def build_enriched_xlsx(
                 dosage_warning = not dosage_exact
             if dosage_no_data and full_name_match and full_manufacturer_match and qty_exact_match:
                 dosage_warning = False
+            
+            warning_reasons: list[str] = []
+            if qty_sum_warning:
+                warning_reasons.append("количество требует проверки")
+            if dosage_warning:
+                warning_reasons.append("дозировка частично совпала")
+            if manufacturer_warning:
+                warning_reasons.append("производитель частично совпал")
+            if partial_name_warning:
+                warning_reasons.append("название частично совпало")
 
             if qty_sum_warning or dosage_warning or manufacturer_warning or partial_name_warning:
                 warning_rows_by_code[code].add(r)
+
+            short_warning_message = " / ".join(warning_reasons)
+            message_for_extra_sheet = short_warning_message if short_warning_message and r not in no_info_rows_by_code[code] else ""
+            apteka_rows_by_code[code][r] = [
+                raw_text,
+                item.get("title", ""),
+                message_for_extra_sheet,
+            ]
 
     wb = Workbook()
     ws = wb.active
@@ -797,17 +809,32 @@ def build_enriched_xlsx(
         apteka_row = 3
         pharmacy_rows = apteka_rows_by_code.get(code, {})
         for r in range(header_row + 1, df.shape[0]):
-            values = pharmacy_rows.get(r, ["", "", ""])
+            raw_value = df.iat[r, header_col]
+            original_name = "" if _is_empty(raw_value) else str(raw_value)
+            values = pharmacy_rows.get(r, [original_name, "", ""])
             for col_idx, value in enumerate(values, start=1):
                 cell = apteka_sheet.cell(row=apteka_row, column=col_idx)
                 cell.value = value
                 cell.alignment = content_alignment
                 cell.border = Border(left=parsed_side, right=parsed_side, top=parsed_side, bottom=parsed_side)
+
+            if r in no_info_rows_by_code.get(code, set()):
+                for col_idx in range(1, len(apteka_extra_headers) + 1):
+                    apteka_sheet.cell(row=apteka_row, column=col_idx).fill = empty_fill
+            elif r in warning_rows_by_code.get(code, set()):
+                for col_idx in range(1, len(apteka_extra_headers) + 1):
+                    apteka_sheet.cell(row=apteka_row, column=col_idx).fill = warning_fill
             apteka_row += 1
 
         for offset in range(len(apteka_extra_headers)):
             target_letter = get_column_letter(offset + 1)
-            apteka_sheet.column_dimensions[target_letter].width = 40 if offset == 0 else 18
+            if offset == 0:
+                width = 40
+            elif offset == 1:
+                width = 40
+            else:
+                width = 50
+            apteka_sheet.column_dimensions[target_letter].width = width
 
     wb.save(out_path)
 
