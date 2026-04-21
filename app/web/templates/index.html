@@ -14,7 +14,7 @@
 } %}
 {% set PHARMACY_LABELS = {
   "apteka_ru": "apteka.ru",
-  "farmacia24": "24 Farmacia",
+  "farmacia24": "Губернские",
 } %}
 <body>
   {% include "_header.html" %}
@@ -36,13 +36,14 @@
         <div class="pharmacy-select-group">
           <span class="city-label">Аптеки:</span>
           <label><input type="checkbox" name="pharmacy_codes" value="apteka_ru" checked> apteka.ru</label>
-          <label><input type="checkbox" name="pharmacy_codes" value="farmacia24"> 24 Farmacia</label>
+          <label><input type="checkbox" name="pharmacy_codes" value="farmacia24"> Губернские</label>
         </div>
         <button id="startParsingBtn" class="btn primary upload-submit" type="submit" disabled>
           Запустить парсинг
         </button>
       </form>
       <p class="hint">Поддерживаются файлы формата .xls, .xlsx и .ods.</p>
+      <p class="hint">Примечание: для "Губернских аптек" город всегда используется Красноярск.</p>
     </div>
 
     <h2>Последние задачи</h2>

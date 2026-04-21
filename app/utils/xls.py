@@ -316,7 +316,7 @@ def build_enriched_xlsx(
         if code == "apteka_ru":
             return _apteka_title(city_name)
         if code == "farmacia24":
-            return "24 Farmacia"
+            return "Губернские аптеки"
         return code.replace("_", " ").title()
 
     selected_codes = [
@@ -536,7 +536,7 @@ def build_enriched_xlsx(
                 name_score = None
             if name_score is None:
                 name_score = _extract_name_score(message_text)
-            partial_name_warning = bool(item.get("partial_name_match")) or (name_score is not None and 50 < name_score < 90)
+            partial_name_warning = bool(item.get("partial_name_match")) or (name_score is not None and 50 < name_score < 80)
             full_name_match = name_score is not None and name_score >= 90
             full_manufacturer_match = manufacturer_score is None or manufacturer_score >= 80
             input_qty = item.get("input_qty")
