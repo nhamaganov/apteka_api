@@ -7,6 +7,7 @@ import time
 from urllib.parse import urljoin
 
 from selenium import webdriver
+from selenium.common.exceptions import StaleElementReferenceException
 from selenium.common.exceptions import TimeoutException
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.chrome.options import Options
@@ -313,15 +314,21 @@ class Farmacia24Parser:
         if best_choice["score"] < 85:
             return False, f"лучший вариант в dropdown ниже порога: {best_choice['title']!r} (score={best_choice['score']:.1f})"
 
-        refreshed_items = self._extract_dropdown_items(driver)
-        for item in refreshed_items:
-            if item["title"] == best_choice["title"]:
-                driver.execute_script("arguments[0].click();", item["element"])
-                self._wait_loader_to_disappear(driver, timeout)
-                return True, (
-                    f"выбран вариант из dropdown: {best_choice['title']!r} (score={best_choice['score']:.1f}, "
-                    f"query={prefix_query!r})"
-                )
+        for _ in range(3):
+            refreshed_items = self._extract_dropdown_items(driver)
+            for item in refreshed_items:
+                if item["title"] != best_choice["title"]:
+                    continue
+                try:
+                    driver.execute_script("arguments[0].click();", item["element"])
+                    self._wait_loader_to_disappear(driver, timeout)
+                    return True, (
+                        f"выбран вариант из dropdown: {best_choice['title']!r} (score={best_choice['score']:.1f}, "
+                        f"query={prefix_query!r})"
+                    )
+                except StaleElementReferenceException:
+                    break
+            time.sleep(0.2)
         return False, f"не удалось найти элемент dropdown для клика: {best_choice['title']!r}"
 
     def _clear_search_input_hard(self, driver: webdriver.Chrome, search_input, timeout: int) -> None:
@@ -363,8 +370,11 @@ class Farmacia24Parser:
         last_seen_value = ""
         attempts = max(1, retries)
         for attempt in range(attempts):
-            self._clear_search_input_hard(driver, search_input, timeout)
-            search_input.send_keys(normalized_expected)
+            current_input = self._wait(driver, timeout).until(
+                EC.visibility_of_element_located((By.CSS_SELECTOR, ".header-search__input"))
+            )
+            self._clear_search_input_hard(driver, current_input, timeout)
+            current_input.send_keys(normalized_expected)
             try:
                 self._wait(driver, min(timeout, 3)).until(
                     lambda _driver: (
@@ -381,6 +391,11 @@ class Farmacia24Parser:
                     raise TimeoutException(
                         f"search input mismatch after retries: expected={normalized_expected!r}, actual={last_seen_value!r}"
                     )
+                continue
+            except StaleElementReferenceException:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(0.2)
                 continue
 
     def _wait_dropdown_items_or_stable_empty(self, driver: webdriver.Chrome, timeout: int) -> list[dict]:
@@ -459,21 +474,24 @@ class Farmacia24Parser:
 
         try:
             WebDriverWait(driver, min(timeout, 3)).until(
-                lambda _driver: any(
-                    loader.is_displayed()
-                    for loader in _driver.find_elements(By.CSS_SELECTOR, loader_selector)
-                )
+                lambda _driver: self._has_visible_elements(_driver, loader_selector)
             )
         except TimeoutException:
             # Лоадер может не появиться на быстрых ответах — это валидный сценарий.
             return
 
         self._wait(driver, timeout).until(
-            lambda _driver: all(
-                not loader.is_displayed()
-                for loader in _driver.find_elements(By.CSS_SELECTOR, loader_selector)
-            )
+            lambda _driver: not self._has_visible_elements(_driver, loader_selector)
         )
+
+    def _has_visible_elements(self, driver: webdriver.Chrome, selector: str) -> bool:
+        for element in driver.find_elements(By.CSS_SELECTOR, selector):
+            try:
+                if element.is_displayed():
+                    return True
+            except StaleElementReferenceException:
+                continue
+        return False
 
     def _wait_search_state(self, driver: webdriver.Chrome, timeout: int) -> str:
         """
@@ -482,12 +500,10 @@ class Farmacia24Parser:
         - пустая выдача `.search-page-not-found`
         """
         def _state(_driver: webdriver.Chrome):
-            not_found = _driver.find_elements(By.CSS_SELECTOR, ".search-page-not-found")
-            if any(el.is_displayed() for el in not_found):
+            if self._has_visible_elements(_driver, ".search-page-not-found"):
                 return "not_found"
 
-            rows = _driver.find_elements(By.CSS_SELECTOR, ".catalog-product-list__row")
-            if any(el.is_displayed() for el in rows):
+            if self._has_visible_elements(_driver, ".catalog-product-list__row"):
                 return "results"
             return False
 
@@ -979,8 +995,8 @@ class Farmacia24Parser:
 
     def _should_reset_driver(self, exc: WebDriverException) -> bool:
         """
-        Перезапускаем браузер только для фатальных проблем с сессией/процессом Chrome.
-        Для обычных ошибок ожидания перезапуск не нужен.
+        Перезапускаем браузер для фатальных проблем с сессией/процессом Chrome
+        и повторяющегося stale состояния элементов.
         """
         message = (getattr(exc, "msg", "") or str(exc)).lower()
         fatal_markers = (
@@ -990,6 +1006,7 @@ class Farmacia24Parser:
             "chrome not reachable",
             "target window already closed",
             "web view not found",
+            "stale element reference",
         )
         return any(marker in message for marker in fatal_markers)
 
