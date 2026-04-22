@@ -873,7 +873,12 @@ def parse_product_page_one_item(
             return False, 0.0, None, None, None, "Товар является набором и был исключён"
 
         found_brand = _get_product_brand(driver)
-        name_match = name_match_details(query_name, title, job_id=job_id)
+        name_match = name_match_details(
+            query_name,
+            title,
+            job_id=job_id,
+            strip_dosage_quantity=True,
+        )
         name_score_note = (
             f"Score названия: {name_match['score']}% "
             f"(token_set={name_match['token_set_score']}%, partial={name_match['partial_score']}%) "
@@ -1121,7 +1126,12 @@ def _collect_matching_card_links(
             if not title or "набор" in title.lower():
                 continue
 
-            if not lookup_by_identity and not is_name_match(query_name, title, job_id=job_id):
+            if not lookup_by_identity and not is_name_match(
+                query_name,
+                title,
+                job_id=job_id,
+                strip_dosage_quantity=True,
+            ):
                 continue
 
             href = ""
