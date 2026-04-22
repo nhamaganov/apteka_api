@@ -334,8 +334,8 @@ def manufacturer_match_details(
 def name_match_details(
     xls_name: str,
     site_title: str,
-    min_token_set: int = 70,
-    min_partial: int = 70,
+    min_token_set: int = 67,
+    min_partial: int = 67,
     job_id: str | None = None,
     strip_dosage_quantity: bool = False,
 ) -> dict:
