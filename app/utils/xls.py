@@ -338,6 +338,17 @@ def build_enriched_xlsx(
         if not pharmacy_codes:
             pharmacy_codes = ["apteka_ru"]
 
+    found_name_col_by_code: dict[str, int] = {}
+    found_names_start_col = header_col + 1
+    for idx, code in enumerate(pharmacy_codes):
+        col_idx = found_names_start_col + idx
+        df.insert(col_idx, f"__found_name__{code}", None)
+        found_name_col_by_code[code] = col_idx
+        df.iat[header_row, col_idx] = _pharmacy_title(code)
+
+    if barcode_col is not None and barcode_col > header_col:
+        barcode_col += len(pharmacy_codes)
+
     pharmacy_items: dict[str, list[dict]] = {code: [] for code in pharmacy_codes}
     for item in items:
         code = _normalize_pharmacy_code(item.get("source_pharmacy")) or "apteka_ru"
@@ -501,6 +512,9 @@ def build_enriched_xlsx(
                 no_info_rows_by_code[code].add(r)
 
             block_start = block_start_by_code[code]
+            found_name_col = found_name_col_by_code.get(code)
+            if found_name_col is not None:
+                df.iat[r, found_name_col] = item.get("title", "")
             df.iat[r, block_start] = parsed_price
             df.iat[r, block_start + 1] = ""
             df.iat[r, block_start + 2] = ""
@@ -655,17 +669,23 @@ def build_enriched_xlsx(
                 )
                 site_markup_cell.number_format = '0.00%'
 
+        found_name_col = found_name_col_by_code.get(code)
+
         for row_idx in warning_rows_by_code[code]:
             if row_idx in no_info_rows_by_code[code]:
                 continue
             excel_row = row_idx + 1 + ROW_OFFSET
             for col_idx in range(block_start, block_start + len(main_extra_headers)):
                 ws.cell(row=excel_row, column=col_idx + 1).fill = warning_fill
+            if found_name_col is not None:
+                ws.cell(row=excel_row, column=found_name_col + 1).fill = warning_fill
 
         for row_idx in no_info_rows_by_code[code]:
             excel_row = row_idx + 1 + ROW_OFFSET
             for col_idx in range(block_start, block_start + len(main_extra_headers)):
                 ws.cell(row=excel_row, column=col_idx + 1).fill = empty_fill
+            if found_name_col is not None:
+                ws.cell(row=excel_row, column=found_name_col + 1).fill = empty_fill
 
     source_min_col = 1
     source_max_col = insert_col
