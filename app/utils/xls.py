@@ -319,6 +319,13 @@ def build_enriched_xlsx(
             return "Губернские аптеки"
         return code.replace("_", " ").title()
 
+    def _display_found_title(code: str, item: dict) -> str:
+        title = str(item.get("title") or "")
+        status = str(item.get("status") or "").strip().lower()
+        if code == "farmacia24" and status == "not_found":
+            return ""
+        return title
+
     selected_codes = [
         _normalize_pharmacy_code(code)
         for code in (pharmacy_codes or [])
@@ -518,7 +525,7 @@ def build_enriched_xlsx(
             block_start = block_start_by_code[code]
             found_name_col = found_name_col_by_code.get(code)
             if found_name_col is not None:
-                df.iat[r, found_name_col] = item.get("title", "")
+                df.iat[r, found_name_col] = _display_found_title(code, item)
             df.iat[r, block_start] = parsed_price
             df.iat[r, block_start + 1] = ""
             df.iat[r, block_start + 2] = ""
@@ -594,7 +601,7 @@ def build_enriched_xlsx(
             message_for_extra_sheet = short_warning_message if short_warning_message and r not in no_info_rows_by_code[code] else ""
             apteka_rows_by_code[code][r] = [
                 raw_text,
-                item.get("title", ""),
+                _display_found_title(code, item),
                 message_for_extra_sheet,
             ]
 
@@ -630,7 +637,7 @@ def build_enriched_xlsx(
             else:
                 cell.alignment = content_alignment
 
-    warning_fill = PatternFill(fill_type="solid", fgColor="FFE599")
+    warning_fill = PatternFill(fill_type="solid", fgColor="A8B1D0")
     empty_fill = PatternFill(fill_type="solid", fgColor="F4CCCC")
 
     for code in pharmacy_codes:
