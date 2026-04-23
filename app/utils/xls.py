@@ -434,7 +434,7 @@ def build_enriched_xlsx(
             base_price_col = col_idx
         if purchase_price_col is None and "цена закуп" in header_value:
             purchase_price_col = col_idx
-        if site_price_col is None and "фг- it-к" in header_value:
+        if site_price_col is None and "фг- it" in header_value:
             site_price_col = col_idx
         if fallback_site_price_col is None and "цена фг" in header_value:
             fallback_site_price_col = col_idx
@@ -476,6 +476,13 @@ def build_enriched_xlsx(
             code_by_product = code_indexes.get("product", {})
             code_by_barcode = code_indexes.get("barcode", {})
             code_by_name = code_indexes.get("name", {})
+
+            if base_price_col is not None:
+                base_markup_formula_rows_by_code[code].append(r)
+            if purchase_price_col is not None:
+                purchase_markup_formula_rows_by_code[code].append(r)
+            if site_price_col is not None:
+                site_markup_formula_rows_by_code[code].append(r)
 
             candidates = code_by_product.get(query_product_code, []) if query_product_code else []
             if not candidates and query_barcode:
@@ -530,20 +537,6 @@ def build_enriched_xlsx(
             df.iat[r, block_start + 1] = ""
             df.iat[r, block_start + 2] = ""
             df.iat[r, block_start + 3] = ""
-
-            parsed_price_num = _to_number(parsed_price)
-            if base_price_col is not None:
-                base_price = _to_number(df.iat[r, base_price_col])
-                if base_price is not None and parsed_price_num is not None:
-                    base_markup_formula_rows_by_code[code].append(r)
-            if purchase_price_col is not None:
-                purchase_price = _to_number(df.iat[r, purchase_price_col])
-                if purchase_price is not None and parsed_price_num is not None:
-                    purchase_markup_formula_rows_by_code[code].append(r)
-            if site_price_col is not None:
-                site_price = _to_number(df.iat[r, site_price_col])
-                if site_price is not None and parsed_price_num is not None:
-                    site_markup_formula_rows_by_code[code].append(r)
 
             message_text = str(item.get("message", ""))
             message_lower = message_text.lower()
@@ -637,7 +630,7 @@ def build_enriched_xlsx(
             else:
                 cell.alignment = content_alignment
 
-    warning_fill = PatternFill(fill_type="solid", fgColor="A8B1D0")
+    warning_fill = PatternFill(fill_type="solid", fgColor="ffefc2")
     empty_fill = PatternFill(fill_type="solid", fgColor="F4CCCC")
 
     for code in pharmacy_codes:
@@ -651,8 +644,8 @@ def build_enriched_xlsx(
                 excel_row = row_idx + 1 + ROW_OFFSET
                 base_markup_cell = ws.cell(row=excel_row, column=base_markup_col)
                 base_markup_cell.value = (
-                    f"=IF(OR({parsed_price_letter}{excel_row}=0,{base_price_letter}{excel_row}=0),"
-                    f"0,{parsed_price_letter}{excel_row}/{base_price_letter}{excel_row}-1)"
+                    f"=IFERROR(IF(OR({parsed_price_letter}{excel_row}=0,{base_price_letter}{excel_row}=0),"
+                    f"0,{parsed_price_letter}{excel_row}/{base_price_letter}{excel_row}-1),\"\")"
                 )
                 base_markup_cell.number_format = '0.00%'
 
@@ -663,8 +656,8 @@ def build_enriched_xlsx(
                 excel_row = row_idx + 1 + ROW_OFFSET
                 purchase_markup_cell = ws.cell(row=excel_row, column=purchase_markup_col)
                 purchase_markup_cell.value = (
-                    f"=IF(OR({parsed_price_letter}{excel_row}=0,{purchase_price_letter}{excel_row}=0),"
-                    f"0,{parsed_price_letter}{excel_row}/{purchase_price_letter}{excel_row}-1)"
+                    f"=IFERROR(IF(OR({parsed_price_letter}{excel_row}=0,{purchase_price_letter}{excel_row}=0),"
+                    f"0,{parsed_price_letter}{excel_row}/{purchase_price_letter}{excel_row}-1),\"\")"
                 )
                 purchase_markup_cell.number_format = '0.00%'
 
@@ -675,8 +668,8 @@ def build_enriched_xlsx(
                 excel_row = row_idx + 1 + ROW_OFFSET
                 site_markup_cell = ws.cell(row=excel_row, column=site_markup_col)
                 site_markup_cell.value = (
-                    f"=IF(OR({parsed_price_letter}{excel_row}=0,{site_price_letter}{excel_row}=0),"
-                    f"0,{parsed_price_letter}{excel_row}/{site_price_letter}{excel_row}-1)"
+                    f"=IFERROR(IF(OR({parsed_price_letter}{excel_row}=0,{site_price_letter}{excel_row}=0),"
+                    f"0,{parsed_price_letter}{excel_row}/{site_price_letter}{excel_row}-1),\"\")"
                 )
                 site_markup_cell.number_format = '0.00%'
 
