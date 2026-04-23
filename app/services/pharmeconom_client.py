@@ -150,7 +150,6 @@ def build_queries_from_product_info(items: list[dict[str, Any]], job_id: str | N
                 "manufacturer": manufacturer,
                 "qty_is_sum": qty_is_sum,
                 "raw": raw,
-                "row": raw,
                 "product_code": item.get("product_code", ""),
                 "row_index": item.get("row_index"),
             })
