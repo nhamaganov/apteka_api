@@ -346,8 +346,12 @@ def build_enriched_xlsx(
         found_name_col_by_code[code] = col_idx
         df.iat[header_row, col_idx] = _pharmacy_title(code)
 
-    if barcode_col is not None and barcode_col > header_col:
-        barcode_col += len(pharmacy_codes)
+    inserted_found_name_cols = len(pharmacy_codes)
+    if inserted_found_name_cols:
+        if barcode_col is not None and barcode_col > header_col:
+            barcode_col += inserted_found_name_cols
+        if product_code_col is not None and product_code_col > header_col:
+            product_code_col += inserted_found_name_cols
 
     pharmacy_items: dict[str, list[dict]] = {code: [] for code in pharmacy_codes}
     for item in items:
