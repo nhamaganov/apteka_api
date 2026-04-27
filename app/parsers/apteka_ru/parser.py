@@ -1130,6 +1130,8 @@ def _collect_matching_card_links(
     query_name: str,
     query_barcode: str = "",
     query_product_code: str = "",
+    apply_name_prefilter: bool = False,
+    min_name_prefilter_score: int = 40,
     job_id: str | None = None,
 ) -> List[Dict[str, str]]:
     """
@@ -1158,7 +1160,16 @@ def _collect_matching_card_links(
                 strip_dosage_quantity=True,
             ):
                 continue
-
+            if apply_name_prefilter:
+                match_details = name_match_details(
+                    query_name,
+                    title,
+                    job_id=job_id,
+                    strip_dosage_quantity=True,
+                )
+                if match_details["score"] < min_name_prefilter_score:
+                    continue
+            
             href = ""
             link_els = card.find_elements(By.CSS_SELECTOR, "a[href]")
             for link in link_els:
@@ -1195,6 +1206,8 @@ def parse_cards(
     timeout: int,
     query_barcode: str = "",
     query_product_code: str = "",
+    apply_name_prefilter: bool = False,
+    min_name_prefilter_score: int = 40,
     job_id: Optional[str] = None,
 ) -> Tuple[List[Dict], List[str]]:
     """
@@ -1214,6 +1227,8 @@ def parse_cards(
         query_name,
         query_barcode=query_barcode,
         query_product_code=query_product_code,
+        apply_name_prefilter=apply_name_prefilter,
+        min_name_prefilter_score=min_name_prefilter_score,
         job_id=job_id,
     )
     log_parse(f"PARSE search candidates={len(candidates)}")
@@ -1326,6 +1341,7 @@ def parse_one_query(
         return "unknown"
 
     search_value = (query_barcode or query_name or "").strip()
+    fallback_by_name_used = False
 
     try:
         if expected_dosage is None:
@@ -1353,6 +1369,7 @@ def parse_one_query(
                     f"url={driver.current_url!r} page={page_type}"
                 )
                 search_value = fallback_value
+                fallback_by_name_used = True
 
             if is_empty_results_page(driver):
                 log_parse("PARSE context empty results page")
@@ -1417,6 +1434,8 @@ def parse_one_query(
             query_manufacturer=query_manufacturer,
             query_barcode=query_barcode,
             query_product_code=query_product_code,
+            apply_name_prefilter=fallback_by_name_used,
+            min_name_prefilter_score=40,
             expected_qty=expected_qty,
             expected_dosage=expected_dosage,
             qty_is_sum=qty_is_sum,
