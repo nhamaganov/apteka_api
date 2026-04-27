@@ -143,6 +143,22 @@ def _apteka_title(city_name: str) -> str:
     return f"Apteka Ru - {normalized_city}" if normalized_city else "Apteka Ru"
 
 
+def _site_price_city_suffix(city_name: str) -> str:
+    """Возвращает суффикс города для заголовков вида 'ФГ- IT-<suffix>'."""
+    normalized = (city_name or "").strip().lower().replace("ё", "е")
+    if not normalized:
+        return ""
+    if normalized.startswith("ирк"):
+        return "и"
+    if normalized.startswith("крас"):
+        return "к"
+    if normalized.startswith("улан"):
+        return "уу"
+    if normalized.startswith("чит"):
+        return "чи"
+    return ""
+
+
 def build_enriched_xlsx(
     path: str,
     out_path: str,
@@ -442,27 +458,30 @@ def build_enriched_xlsx(
 
     base_price_col: Optional[int] = None
     purchase_price_col: Optional[int] = None
-    site_price_col: Optional[int] = None
-    fallback_site_price_col: Optional[int] = None
+    site_price_col_by_suffix: dict[str, int] = {}
     for col_idx in range(df.shape[1]):
         header_value = " ".join(str(df.iat[header_row, col_idx]).strip().lower().split())
         if base_price_col is None and "цена базовая" in header_value:
             base_price_col = col_idx
         if purchase_price_col is None and "цена закуп" in header_value:
             purchase_price_col = col_idx
-        if site_price_col is None and "фг- it" in header_value:
-            site_price_col = col_idx
-        if fallback_site_price_col is None and "цена фг" in header_value:
-            fallback_site_price_col = col_idx
+        site_header_match = re.search(r"фг-\s*it-\s*(и|к|уу|чи)\b", header_value)
+        if site_header_match:
+            suffix = site_header_match.group(1)
+            if suffix not in site_price_col_by_suffix:
+                site_price_col_by_suffix[suffix] = col_idx
         if (
             base_price_col is not None
             and purchase_price_col is not None
-            and site_price_col is not None
+            and len(site_price_col_by_suffix) == 4
         ):
             break
 
-    if site_price_col is None:
-        site_price_col = fallback_site_price_col
+    site_price_col_by_block: dict[tuple[str, str], Optional[int]] = {}
+    for block_key in block_keys:
+        _, city_value = block_key
+        site_suffix = _site_price_city_suffix(city_value)
+        site_price_col_by_block[block_key] = site_price_col_by_suffix.get(site_suffix)
 
     base_markup_formula_rows_by_block: dict[tuple[str, str], list[int]] = {block_key: [] for block_key in block_keys}
     purchase_markup_formula_rows_by_block: dict[tuple[str, str], list[int]] = {block_key: [] for block_key in block_keys}
@@ -498,7 +517,7 @@ def build_enriched_xlsx(
                 base_markup_formula_rows_by_block[block_key].append(r)
             if purchase_price_col is not None:
                 purchase_markup_formula_rows_by_block[block_key].append(r)
-            if site_price_col is not None:
+            if site_price_col_by_block.get(block_key) is not None:
                 site_markup_formula_rows_by_block[block_key].append(r)
 
             candidates = code_by_product.get(query_product_code, []) if query_product_code else []
@@ -626,7 +645,8 @@ def build_enriched_xlsx(
 
     price_numeric_columns = {
         *(block_start_by_block[block_key] + PRICE_OFFSET for block_key in block_keys),
-        *(idx for idx in [base_price_col, purchase_price_col, site_price_col] if idx is not None),
+        *(idx for idx in [base_price_col, purchase_price_col] if idx is not None),
+        *(idx for idx in site_price_col_by_block.values() if idx is not None),
     }
 
     for row_idx in range(df.shape[0]):
@@ -676,7 +696,8 @@ def build_enriched_xlsx(
                     f"0,{parsed_price_letter}{excel_row}/{purchase_price_letter}{excel_row}-1),\"\")"
                 )
                 purchase_markup_cell.number_format = '0.00%'
-
+        
+        site_price_col = site_price_col_by_block.get(block_key)
         if site_price_col is not None:
             site_price_letter = get_column_letter(site_price_col + 1)
             site_markup_col = block_start + SITE_MARKUP_OFFSET + 1
