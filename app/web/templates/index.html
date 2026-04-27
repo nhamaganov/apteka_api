@@ -26,13 +26,18 @@
         <input id="uploadFile" class="file-input" type="file" name="file" accept=".xls,.xlsx,.ods" required />
         <label for="uploadFile" class="btn file-picker">Выбрать файл</label>
         <span id="selectedFileName" class="selected-file">Файл не выбран</span>
-        <label class="city-label" for="citySelect">Город:</label>
-        <select id="citySelect" class="city-select" name="city">
-          <option value="Иркутск" selected>Иркутск</option>
-          <option value="Чита">Чита</option>
-          <option value="Красноярск">Красноярск</option>
-          <option value="Улан-Удэ">Улан-Удэ</option>
-        </select>
+        <div class="city-multiselect">
+          <span class="city-label">Города:</span>
+          <details id="cityDropdown" class="city-dropdown">
+            <summary id="citySummary" class="city-select">Иркутск</summary>
+            <div class="city-options">
+              <label><input class="city-checkbox" type="checkbox" name="cities" value="Иркутск" checked> Иркутск</label>
+              <label><input class="city-checkbox" type="checkbox" name="cities" value="Чита"> Чита</label>
+              <label><input class="city-checkbox" type="checkbox" name="cities" value="Красноярск"> Красноярск</label>
+              <label><input class="city-checkbox" type="checkbox" name="cities" value="Улан-Удэ"> Улан-Удэ</label>
+            </div>
+          </details>
+        </div>
         <div class="pharmacy-select-group">
           <span class="city-label">Аптеки:</span>
           <label><input type="checkbox" name="pharmacy_codes" value="apteka_ru" checked> apteka.ru</label>
@@ -43,7 +48,8 @@
         </button>
       </form>
       <p class="hint">Поддерживаются файлы формата .xls, .xlsx и .ods.</p>
-      <p class="hint">Примечание: для "Губернских аптек" город всегда используется Красноярск.</p>
+      <p class="hint">Можно выбрать несколько городов: запросы будут выполнены для каждого выбранного города.</p>
+      <p class="hint">Для «Губернских аптек» город всегда фиксирован: Красноярск.</p>
     </div>
 
     <h2>Последние задачи</h2>
@@ -80,7 +86,23 @@
                 </span>
               </td>
 
-              <td>{{ j.city or "-" }}</td>
+              {% set city_names = j.cities or ([j.city] if j.city else []) %}
+              {% set city_names = city_names | select | list %}
+              {% set cities_title = city_names|join(", ") %}
+              <td>
+                {% if city_names %}
+                  <div class="pharmacy-pills" title="{{ cities_title }}">
+                    {% for city_name in city_names[:2] %}
+                      <span class="pharmacy-pill" title="{{ city_name }}">{{ city_name }}</span>
+                    {% endfor %}
+                    {% if city_names|length > 2 %}
+                      <span class="pharmacy-pill">+{{ city_names|length - 2 }}</span>
+                    {% endif %}
+                  </div>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
         
               {% set ns = namespace(names=[]) %}
               {% for code in (j.pharmacy_codes or []) %}
@@ -164,6 +186,9 @@
     const uploadInput = document.getElementById("uploadFile");
     const fileNameLabel = document.getElementById("selectedFileName");
     const startButton = document.getElementById("startParsingBtn");
+    const cityCheckboxes = Array.from(document.querySelectorAll(".city-checkbox"));
+    const citySummary = document.getElementById("citySummary");
+    const uploadForm = document.querySelector(".upload-form");
 
     uploadInput.addEventListener("change", () => {
       const file = uploadInput.files && uploadInput.files[0];
@@ -177,6 +202,33 @@
         startButton.disabled = true;
       }
     });
+
+    function updateCitySummary() {
+      const selectedCities = cityCheckboxes
+        .filter((checkbox) => checkbox.checked)
+        .map((checkbox) => checkbox.value);
+
+      if (selectedCities.length === 0) {
+        citySummary.textContent = "Выберите город";
+      } else if (selectedCities.length <= 2) {
+        citySummary.textContent = selectedCities.join(", ");
+      } else {
+        citySummary.textContent = `${selectedCities[0]}, ${selectedCities[1]} +${selectedCities.length - 2}`;
+      }
+    }
+
+    cityCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener("change", updateCitySummary);
+    });
+
+    uploadForm.addEventListener("submit", (event) => {
+      const hasSelectedCity = cityCheckboxes.some((checkbox) => checkbox.checked);
+      if (hasSelectedCity) return;
+      event.preventDefault();
+      alert("Выберите хотя бы один город.");
+    });
+
+    updateCitySummary();
   </script>
 </body>
 </html>

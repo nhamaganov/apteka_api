@@ -18,4 +18,5 @@ class JobStatus(BaseModel):
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
     error: Optional[str] = None
+    cancelled: Optional[bool] = False
     

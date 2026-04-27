@@ -103,14 +103,24 @@ def list_jobs(limit: int = 20) -> List[Dict[str, Any]]:
         try:
             data = read_json(st)
             data["job_id"] = data.get("job_id") or p.name
-            if not data.get("city"):
+            if not data.get("city") or not data.get("cities"):
                 q_path = p / "queries.json"
                 if q_path.exists():
                     try:
                         q_data = read_json(q_path)
-                        data["city"] = q_data.get("city", "")
+                        cities = q_data.get("cities") or []
+                        if not cities:
+                            single_city = q_data.get("city", "")
+                            cities = [single_city] if single_city else []
+                        data["cities"] = [str(city).strip() for city in cities if str(city).strip()]
+                        data["city"] = data["cities"][0] if data["cities"] else ""
                     except Exception:
+                        data["cities"] = []
                         data["city"] = ""
+            else:
+                data["cities"] = [str(city).strip() for city in (data.get("cities") or []) if str(city).strip()]
+                if not data["city"] and data["cities"]:
+                    data["city"] = data["cities"][0]
 
             created_at_iso = data.get("created_at", "")
             try:

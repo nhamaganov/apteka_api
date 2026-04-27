@@ -46,7 +46,7 @@ def index(request: Request):
 async def upload(
     request: Request,
     file: UploadFile = File(...),
-    city: str = Form("Иркутск"),
+    cities: list[str] = Form(default=["Иркутск"]),
     pharmacy_codes: list[str] = Form(default=["apteka_ru"]),
 ):
     """Обрабатывает загрузку Excel в UI и ставит задачу в очередь."""
@@ -79,11 +79,21 @@ async def upload(
     if not selected_codes:
         selected_codes = ["apteka_ru"]
 
+    selected_cities = []
+    for city in cities or []:
+        normalized_city = str(city).strip()
+        if normalized_city and normalized_city not in selected_cities:
+            selected_cities.append(normalized_city)
+    if not selected_cities:
+        selected_cities = ["Иркутск"]
+    primary_city = selected_cities[0]
+
     write_json(
         queries_path(job_id),
         {
             "queries": queries,
-            "city": city,
+            "city": primary_city,
+            "cities": selected_cities,
             "product_info": product_info_items,
             "pharmacy_codes": selected_codes,
         },
@@ -107,7 +117,8 @@ async def upload(
     data = status.model_dump()
     data["display_name"] = display_name
     data["filename"] = file.filename
-    data["city"] = city
+    data["city"] = primary_city
+    data["cities"] = selected_cities
     data["pharmacy_codes"] = selected_codes
     data["cancelled"] = False
 

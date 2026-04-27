@@ -138,6 +138,33 @@ def close_modal_if_any(driver, timeout) -> None:
         pass
 
 
+def _city_variants(city_name: str) -> set[str]:
+    """Возвращает набор допустимых вариантов написания города для проверки в UI."""
+    base = (city_name or "").strip().lower().replace("ё", "е")
+    if not base:
+        return set()
+
+    variants = {base}
+    if base.endswith("а") and len(base) > 1:
+        variants.add(base[:-1] + "е")
+    if base.endswith("ск"):
+        variants.add(base + "е")
+    return {v for v in variants if v}
+
+
+def _city_text_matches(city_name: str, ui_text: str) -> bool:
+    """Проверяет, что текст из UI соответствует выбранному городу с учетом склонений."""
+    city_variants = _city_variants(city_name)
+    if not city_variants:
+        return False
+
+    normalized_ui_text = (ui_text or "").strip().lower().replace("ё", "е")
+    if not normalized_ui_text:
+        return False
+
+    return any(variant in normalized_ui_text for variant in city_variants)
+
+
 def select_city(driver, city: str, timeout: int = 8) -> None:
     """Выбирает город в шапке сайта через модалку выбора города."""
     city_name = (city or "").strip()
@@ -156,7 +183,6 @@ def select_city(driver, city: str, timeout: int = 8) -> None:
     city_input.send_keys(Keys.CONTROL, "a")
     city_input.send_keys(Keys.BACKSPACE)
     city_input.send_keys(city_name)
-    city_name_lower = city_name.lower()
 
     def matching_city_option(_driver):
         options = _driver.find_elements(By.CSS_SELECTOR, ".TownSelector__options .TownSelector-option")
@@ -168,7 +194,7 @@ def select_city(driver, city: str, timeout: int = 8) -> None:
 
             if not option_text:
                 continue
-            if city_name_lower not in option_text.lower():
+            if not _city_text_matches(city_name, option_text):
                 continue
             if option.is_displayed() and option.is_enabled():
                 return option
@@ -178,10 +204,9 @@ def select_city(driver, city: str, timeout: int = 8) -> None:
     option.click()
 
     w(driver, timeout).until(
-        lambda _driver: city_name_lower in (
-            (_driver.find_element(By.CSS_SELECTOR, "span.SiteHeaderTop__link.SiteHeaderTop__city").text or "")
-            .strip()
-            .lower()
+        lambda _driver: _city_text_matches(
+            city_name,
+            _driver.find_element(By.CSS_SELECTOR, "span.SiteHeaderTop__link.SiteHeaderTop__city").text or "",
         )
     )
     time.sleep(4)

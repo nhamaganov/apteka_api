@@ -312,11 +312,13 @@ def build_enriched_xlsx(
     def _normalize_pharmacy_code(value: object) -> str:
         return str(value or "").strip().lower()
 
-    def _pharmacy_title(code: str) -> str:
+    requested_cities = [part.strip() for part in str(city_name or "").split(",") if part.strip()]
+
+    def _pharmacy_title(code: str, city_value: str = "") -> str:
         if code == "apteka_ru":
-            return _apteka_title(city_name)
+            return _apteka_title(city_value)
         if code == "farmacia24":
-            return "Губернские аптеки"
+            return f"Губернские аптеки - {city_value}" if city_value else "Губернские аптеки"
         return code.replace("_", " ").title()
 
     def _display_found_title(code: str, item: dict) -> str:
@@ -345,33 +347,56 @@ def build_enriched_xlsx(
         if not pharmacy_codes:
             pharmacy_codes = ["apteka_ru"]
 
-    found_name_col_by_code: dict[str, int] = {}
-    found_names_start_col = header_col + 1
-    for idx, code in enumerate(pharmacy_codes):
-        col_idx = found_names_start_col + idx
-        df.insert(col_idx, f"__found_name__{code}", None)
-        found_name_col_by_code[code] = col_idx
-        df.iat[header_row, col_idx] = _pharmacy_title(code)
+    city_list_by_code: dict[str, list[str]] = {}
+    for code in pharmacy_codes:
+        if code == "farmacia24":
+            city_list_by_code[code] = ["Красноярск"]
+            continue
+        if requested_cities:
+            city_list_by_code[code] = requested_cities
+            continue
 
-    inserted_found_name_cols = len(pharmacy_codes)
+        item_cities: list[str] = []
+        for item in items:
+            if _normalize_pharmacy_code(item.get("source_pharmacy")) != code:
+                continue
+            item_city = str(item.get("city") or "").strip()
+            if item_city and item_city not in item_cities:
+                item_cities.append(item_city)
+        city_list_by_code[code] = item_cities or [str(city_name or "").strip()]
+
+    block_keys: list[tuple[str, str]] = []
+    for code in pharmacy_codes:
+        for city_value in city_list_by_code.get(code, []):
+            block_keys.append((code, city_value))
+
+    found_name_col_by_block: dict[tuple[str, str], int] = {}
+    found_names_start_col = header_col + 1
+    for idx, block_key in enumerate(block_keys):
+        code, city_value = block_key
+        col_idx = found_names_start_col + idx
+        df.insert(col_idx, f"__found_name__{code}__{city_value}", None)
+        found_name_col_by_block[block_key] = col_idx
+        df.iat[header_row, col_idx] = _pharmacy_title(code, city_value)
+
+    inserted_found_name_cols = len(block_keys)
     if inserted_found_name_cols:
         if barcode_col is not None and barcode_col > header_col:
             barcode_col += inserted_found_name_cols
         if product_code_col is not None and product_code_col > header_col:
             product_code_col += inserted_found_name_cols
 
-    pharmacy_items: dict[str, list[dict]] = {code: [] for code in pharmacy_codes}
-    for item in items:
-        code = _normalize_pharmacy_code(item.get("source_pharmacy")) or "apteka_ru"
-        pharmacy_items.setdefault(code, []).append(item)
-
-    indexes_by_pharmacy: dict[str, dict[str, dict[str, list[dict]]]] = {}
-    for code in pharmacy_codes:
-        code_items = pharmacy_items.get(code, [])
+    indexes_by_block: dict[tuple[str, str], dict[str, dict[str, list[dict]]]] = {}
+    for block_key in block_keys:
+        code, city_value = block_key
         code_by_product: dict[str, list[dict]] = {}
         code_by_name: dict[str, list[dict]] = {}
         code_by_barcode: dict[str, list[dict]] = {}
-        for item in code_items:
+        for item in items:
+            item_code = _normalize_pharmacy_code(item.get("source_pharmacy")) or "apteka_ru"
+            item_city = str(item.get("city") or "").strip()
+            if item_code != code or item_city != city_value:
+                continue
             product_code_key = str(item.get("input_product_code") or "").strip()
             if product_code_key:
                 code_by_product.setdefault(product_code_key, []).append(item)
@@ -383,7 +408,7 @@ def build_enriched_xlsx(
             barcode_key = _normalize_barcode(item.get("input_barcode"))
             if barcode_key:
                 code_by_barcode.setdefault(barcode_key, []).append(item)
-        indexes_by_pharmacy[code] = {
+        indexes_by_block[block_key] = {
             "product": code_by_product,
             "name": code_by_name,
             "barcode": code_by_barcode,
@@ -398,7 +423,7 @@ def build_enriched_xlsx(
         return True
 
     insert_col = header_col + 1
-    parsed_block_width = len(main_extra_headers) * len(pharmacy_codes)
+    parsed_block_width = len(main_extra_headers) * len(block_keys)
     while True:
         block_is_free = True
         for offset in range(parsed_block_width):
@@ -413,16 +438,17 @@ def build_enriched_xlsx(
     while df.shape[1] < required_cols:
         df[df.shape[1]] = None
 
-    block_start_by_code: dict[str, int] = {}
-    for idx, code in enumerate(pharmacy_codes):
+    block_start_by_block: dict[tuple[str, str], int] = {}
+    for idx, block_key in enumerate(block_keys):
+        code, city_value = block_key
         start_col = insert_col + idx * len(main_extra_headers)
-        block_start_by_code[code] = start_col
+        block_start_by_block[block_key] = start_col
         for offset, name in enumerate(main_extra_headers):
             df.iat[header_row, start_col + offset] = name
 
-    apteka_rows_by_code: dict[str, dict[int, list[object]]] = {code: {} for code in pharmacy_codes}
-    warning_rows_by_code: dict[str, set[int]] = {code: set() for code in pharmacy_codes}
-    no_info_rows_by_code: dict[str, set[int]] = {code: set() for code in pharmacy_codes}
+    apteka_rows_by_block: dict[tuple[str, str], dict[int, list[object]]] = {block_key: {} for block_key in block_keys}
+    warning_rows_by_block: dict[tuple[str, str], set[int]] = {block_key: set() for block_key in block_keys}
+    no_info_rows_by_block: dict[tuple[str, str], set[int]] = {block_key: set() for block_key in block_keys}
 
     base_price_col: Optional[int] = None
     purchase_price_col: Optional[int] = None
@@ -448,9 +474,9 @@ def build_enriched_xlsx(
     if site_price_col is None:
         site_price_col = fallback_site_price_col
 
-    base_markup_formula_rows_by_code: dict[str, list[int]] = {code: [] for code in pharmacy_codes}
-    purchase_markup_formula_rows_by_code: dict[str, list[int]] = {code: [] for code in pharmacy_codes}
-    site_markup_formula_rows_by_code: dict[str, list[int]] = {code: [] for code in pharmacy_codes}
+    base_markup_formula_rows_by_block: dict[tuple[str, str], list[int]] = {block_key: [] for block_key in block_keys}
+    purchase_markup_formula_rows_by_block: dict[tuple[str, str], list[int]] = {block_key: [] for block_key in block_keys}
+    site_markup_formula_rows_by_block: dict[tuple[str, str], list[int]] = {block_key: [] for block_key in block_keys}
 
     for r in range(header_row + 1, df.shape[0]):
         raw = df.iat[r, header_col]
@@ -471,18 +497,19 @@ def build_enriched_xlsx(
         def _candidate_dosage(candidate: dict) -> Optional[str]:
             return _normalize_dosage(candidate.get("input_dosage"))
 
-        for code in pharmacy_codes:
-            code_indexes = indexes_by_pharmacy.get(code, {})
+        for block_key in block_keys:
+            code, city_value = block_key
+            code_indexes = indexes_by_block.get(block_key, {})
             code_by_product = code_indexes.get("product", {})
             code_by_barcode = code_indexes.get("barcode", {})
             code_by_name = code_indexes.get("name", {})
 
             if base_price_col is not None:
-                base_markup_formula_rows_by_code[code].append(r)
+                base_markup_formula_rows_by_block[block_key].append(r)
             if purchase_price_col is not None:
-                purchase_markup_formula_rows_by_code[code].append(r)
+                purchase_markup_formula_rows_by_block[block_key].append(r)
             if site_price_col is not None:
-                site_markup_formula_rows_by_code[code].append(r)
+                site_markup_formula_rows_by_block[block_key].append(r)
 
             candidates = code_by_product.get(query_product_code, []) if query_product_code else []
             if not candidates and query_barcode:
@@ -490,7 +517,7 @@ def build_enriched_xlsx(
             if not candidates:
                 candidates = code_by_name.get(_key(query_name), [])
             if not candidates:
-                no_info_rows_by_code[code].add(r)
+                no_info_rows_by_block[block_key].add(r)
                 continue
 
             qty_matched: list[dict] = []
@@ -503,12 +530,12 @@ def build_enriched_xlsx(
                 if not qty_matched and query_qty is not None:
                     qty_matched = [c for c in candidates if c.get("input_qty") == query_qty]
                 if not qty_matched:
-                    no_info_rows_by_code[code].add(r)
+                    no_info_rows_by_block[block_key].add(r)
                     continue
             elif query_qty is not None:
                 qty_matched = [c for c in candidates if c.get("input_qty") == query_qty]
                 if not qty_matched:
-                    no_info_rows_by_code[code].add(r)
+                    no_info_rows_by_block[block_key].add(r)
                     continue
             else:
                 qty_matched = [c for c in candidates if c.get("input_qty") is None]
@@ -518,7 +545,7 @@ def build_enriched_xlsx(
             if query_dosage is not None:
                 dosage_matched = [c for c in qty_matched if _candidate_dosage(c) == query_dosage]
                 if not dosage_matched:
-                    no_info_rows_by_code[code].add(r)
+                    no_info_rows_by_block[block_key].add(r)
                     continue
                 item = dosage_matched[0]
             else:
@@ -527,10 +554,10 @@ def build_enriched_xlsx(
 
             parsed_price = item.get("price", "")
             if _is_empty(parsed_price):
-                no_info_rows_by_code[code].add(r)
+                no_info_rows_by_block[block_key].add(r)
 
-            block_start = block_start_by_code[code]
-            found_name_col = found_name_col_by_code.get(code)
+            block_start = block_start_by_block[block_key]
+            found_name_col = found_name_col_by_block.get(block_key)
             if found_name_col is not None:
                 df.iat[r, found_name_col] = _display_found_title(code, item)
             df.iat[r, block_start] = parsed_price
@@ -588,11 +615,11 @@ def build_enriched_xlsx(
                 warning_reasons.append("название частично совпало")
 
             if qty_sum_warning or dosage_warning or manufacturer_warning or partial_name_warning:
-                warning_rows_by_code[code].add(r)
+                warning_rows_by_block[block_key].add(r)
 
             short_warning_message = " / ".join(warning_reasons)
-            message_for_extra_sheet = short_warning_message if short_warning_message and r not in no_info_rows_by_code[code] else ""
-            apteka_rows_by_code[code][r] = [
+            message_for_extra_sheet = short_warning_message if short_warning_message and r not in no_info_rows_by_block[block_key] else ""
+            apteka_rows_by_block[block_key][r] = [
                 raw_text,
                 _display_found_title(code, item),
                 message_for_extra_sheet,
@@ -610,7 +637,7 @@ def build_enriched_xlsx(
     content_alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
 
     price_numeric_columns = {
-        *(block_start_by_code[code] for code in pharmacy_codes),
+        *(block_start_by_block[block_key] for block_key in block_keys),
         *(idx for idx in [base_price_col, purchase_price_col, site_price_col] if idx is not None),
     }
 
@@ -633,14 +660,15 @@ def build_enriched_xlsx(
     warning_fill = PatternFill(fill_type="solid", fgColor="ffefc2")
     empty_fill = PatternFill(fill_type="solid", fgColor="F4CCCC")
 
-    for code in pharmacy_codes:
-        block_start = block_start_by_code[code]
+    for block_key in block_keys:
+        code, _ = block_key
+        block_start = block_start_by_block[block_key]
         parsed_price_letter = get_column_letter(block_start + 1)
 
         if base_price_col is not None:
             base_price_letter = get_column_letter(base_price_col + 1)
             base_markup_col = block_start + 2
-            for row_idx in base_markup_formula_rows_by_code[code]:
+            for row_idx in base_markup_formula_rows_by_block[block_key]:
                 excel_row = row_idx + 1 + ROW_OFFSET
                 base_markup_cell = ws.cell(row=excel_row, column=base_markup_col)
                 base_markup_cell.value = (
@@ -652,7 +680,7 @@ def build_enriched_xlsx(
         if purchase_price_col is not None:
             purchase_price_letter = get_column_letter(purchase_price_col + 1)
             purchase_markup_col = block_start + 3
-            for row_idx in purchase_markup_formula_rows_by_code[code]:
+            for row_idx in purchase_markup_formula_rows_by_block[block_key]:
                 excel_row = row_idx + 1 + ROW_OFFSET
                 purchase_markup_cell = ws.cell(row=excel_row, column=purchase_markup_col)
                 purchase_markup_cell.value = (
@@ -664,7 +692,7 @@ def build_enriched_xlsx(
         if site_price_col is not None:
             site_price_letter = get_column_letter(site_price_col + 1)
             site_markup_col = block_start + 4
-            for row_idx in site_markup_formula_rows_by_code[code]:
+            for row_idx in site_markup_formula_rows_by_block[block_key]:
                 excel_row = row_idx + 1 + ROW_OFFSET
                 site_markup_cell = ws.cell(row=excel_row, column=site_markup_col)
                 site_markup_cell.value = (
@@ -673,10 +701,10 @@ def build_enriched_xlsx(
                 )
                 site_markup_cell.number_format = '0.00%'
 
-        found_name_col = found_name_col_by_code.get(code)
+        found_name_col = found_name_col_by_block.get(block_key)
 
-        for row_idx in warning_rows_by_code[code]:
-            if row_idx in no_info_rows_by_code[code]:
+        for row_idx in warning_rows_by_block[block_key]:
+            if row_idx in no_info_rows_by_block[block_key]:
                 continue
             excel_row = row_idx + 1 + ROW_OFFSET
             for col_idx in range(block_start, block_start + len(main_extra_headers)):
@@ -684,7 +712,7 @@ def build_enriched_xlsx(
             if found_name_col is not None:
                 ws.cell(row=excel_row, column=found_name_col + 1).fill = warning_fill
 
-        for row_idx in no_info_rows_by_code[code]:
+        for row_idx in no_info_rows_by_block[block_key]:
             excel_row = row_idx + 1 + ROW_OFFSET
             for col_idx in range(block_start, block_start + len(main_extra_headers)):
                 ws.cell(row=excel_row, column=col_idx + 1).fill = empty_fill
@@ -708,8 +736,9 @@ def build_enriched_xlsx(
     source_header_cell.font = Font(size=18, bold=True)
     source_header_cell.fill = PatternFill(fill_type="solid", fgColor="D9EAD3")
 
-    for code in pharmacy_codes:
-        block_start = block_start_by_code[code] + 1
+    for block_key in block_keys:
+        code, city_value = block_key
+        block_start = block_start_by_block[block_key] + 1
         block_end = block_start + len(main_extra_headers) - 1
         ws.merge_cells(
             start_row=1,
@@ -718,7 +747,7 @@ def build_enriched_xlsx(
             end_column=block_end,
         )
         parsed_header_cell = ws.cell(row=1, column=block_start)
-        parsed_header_cell.value = _pharmacy_title(code)
+        parsed_header_cell.value = _pharmacy_title(code, city_value)
         parsed_header_cell.alignment = Alignment(horizontal="center", vertical="center")
         parsed_header_cell.font = Font(size=18, bold=True)
         parsed_header_cell.fill = PatternFill(fill_type="solid", fgColor="D0E0E3")
@@ -801,8 +830,8 @@ def build_enriched_xlsx(
             max_col=insert_col - 1,
             side=source_side,
         )
-        for code in pharmacy_codes:
-            block_start = block_start_by_code[code]
+        for block_key in block_keys:
+            block_start = block_start_by_block[block_key]
             _apply_table_borders(
                 min_row=header_row,
                 max_row=last_row,
@@ -813,13 +842,14 @@ def build_enriched_xlsx(
 
     ws.title = "Итог"
 
-    for code in pharmacy_codes:
-        sheet_title = _pharmacy_title(code)[:31] or "Sheet"
+    for block_key in block_keys:
+        code, city_value = block_key
+        sheet_title = _pharmacy_title(code, city_value)[:31] or "Sheet"
         apteka_sheet = wb.create_sheet(sheet_title)
         apteka_sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(apteka_extra_headers))
 
         apteka_header_cell = apteka_sheet.cell(row=1, column=1)
-        apteka_header_cell.value = _pharmacy_title(code)
+        apteka_header_cell.value = _pharmacy_title(code, city_value)
         apteka_header_cell.alignment = Alignment(horizontal="center", vertical="center")
         apteka_header_cell.font = Font(size=22, bold=True)
         apteka_header_cell.fill = PatternFill(fill_type="solid", fgColor="D0E0E3")
@@ -831,7 +861,7 @@ def build_enriched_xlsx(
             cell.border = Border(left=parsed_side, right=parsed_side, top=parsed_side, bottom=parsed_side)
 
         apteka_row = 3
-        pharmacy_rows = apteka_rows_by_code.get(code, {})
+        pharmacy_rows = apteka_rows_by_block.get(block_key, {})
         for r in range(header_row + 1, df.shape[0]):
             raw_value = df.iat[r, header_col]
             original_name = "" if _is_empty(raw_value) else str(raw_value)
@@ -842,10 +872,10 @@ def build_enriched_xlsx(
                 cell.alignment = content_alignment
                 cell.border = Border(left=parsed_side, right=parsed_side, top=parsed_side, bottom=parsed_side)
 
-            if r in no_info_rows_by_code.get(code, set()):
+            if r in no_info_rows_by_block.get(block_key, set()):
                 for col_idx in range(1, len(apteka_extra_headers) + 1):
                     apteka_sheet.cell(row=apteka_row, column=col_idx).fill = empty_fill
-            elif r in warning_rows_by_code.get(code, set()):
+            elif r in warning_rows_by_block.get(block_key, set()):
                 for col_idx in range(1, len(apteka_extra_headers) + 1):
                     apteka_sheet.cell(row=apteka_row, column=col_idx).fill = warning_fill
             apteka_row += 1

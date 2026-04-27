@@ -33,13 +33,31 @@ def _process_job_sync(job_id: str) -> None:
 
     queries_data = read_json(queries_path(job_id))
     queries = queries_data.get("queries", [])
-    selected_city = queries_data.get("city", "")
+    selected_cities = queries_data.get("cities") or []
+    if not selected_cities:
+        fallback_city = str(queries_data.get("city", "")).strip()
+        selected_cities = [fallback_city] if fallback_city else []
+    selected_cities = [str(city).strip() for city in selected_cities if str(city).strip()]
+    if not selected_cities:
+        selected_cities = [""]
     pharmacy_codes = queries_data.get("pharmacy_codes", ["apteka_ru"])
     pharmacy_codes = [str(code).strip().lower() for code in pharmacy_codes if str(code).strip()]
     if not pharmacy_codes:
         pharmacy_codes = ["apteka_ru"]
-    total = len(queries)
-    total *= len(pharmacy_codes)
+    
+    def _cities_for_pharmacy(pharmacy_code: str) -> List[str]:
+        if pharmacy_code == "farmacia24":
+            return ["Красноярск"]
+        return selected_cities
+
+    effective_cities: List[str] = []
+    for pharmacy_code in pharmacy_codes:
+        for city_name in _cities_for_pharmacy(pharmacy_code):
+            if city_name and city_name not in effective_cities:
+                effective_cities.append(city_name)
+
+    city_label = ", ".join(effective_cities)
+    total = len(queries) * sum(len(_cities_for_pharmacy(pharmacy_code)) for pharmacy_code in pharmacy_codes)
 
     status["progress"]["total"] = total
     write_json(status_path(job_id), status)
@@ -55,7 +73,7 @@ def _process_job_sync(job_id: str) -> None:
         write_json(status_path(job_id), status)
 
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "cancelled": True})
-        _write_result_csv(job_id, all_items, status, selected_city, pharmacy_codes)
+        _write_result_csv(job_id, all_items, status, city_label, pharmacy_codes)
         job_log(job_id, "JOB cancelled by user")
 
     try:
@@ -94,7 +112,7 @@ def _process_job_sync(job_id: str) -> None:
 
         normalized_queries = [_build_query_payload(q) for q in queries]
 
-        def _apply_outcome(pharmacy_code: str, outcome: str, items: list[Dict], q_payload: Dict) -> None:
+        def _apply_outcome(pharmacy_code: str, city_name: str, outcome: str, items: list[Dict], q_payload: Dict) -> None:
             q_name = q_payload["name"]
             q_qty = q_payload["qty"]
             q_dosage = q_payload["dosage"]
@@ -118,6 +136,7 @@ def _process_job_sync(job_id: str) -> None:
             if outcome == "matched":
                 details_parts = [
                     f"Аптека: {pharmacy_code}",
+                    f"Город: {city_name if city_name else '—'}",
                     f"Найдено: {found_title}",
                     f"Кол-во: {found_qty if found_qty is not None else '—'} (ожидалось: {q_qty if q_qty is not None else '—'})",
                     f"Дозировка: {found_dosage or '—'} (ожидалось: {q_dosage or '—'})",
@@ -132,11 +151,11 @@ def _process_job_sync(job_id: str) -> None:
                 if outcome == "failed":
                     fail_reason = (items[0].get("message") or "").strip() if items else ""
                     if fail_reason:
-                        job_log(job_id, f"Аптека: {pharmacy_code} | Ошибка: {fail_reason}")
+                        job_log(job_id, f"Аптека: {pharmacy_code} | Город: {city_name if city_name else '—'} | Ошибка: {fail_reason}")
                     else:
-                        job_log(job_id, f"Аптека: {pharmacy_code} | Ошибка: неизвестная причина")
+                        job_log(job_id, f"Аптека: {pharmacy_code} | Город: {city_name if city_name else '—'} | Ошибка: неизвестная причина")
                 else:
-                    job_log(job_id, f"Аптека: {pharmacy_code} | Найдено: {found_title}")
+                    job_log(job_id, f"Аптека: {pharmacy_code} | Город: {city_name if city_name else '—'} | Найдено: {found_title}")
 
             with status_lock:
                 if outcome == "matched":
@@ -151,15 +170,37 @@ def _process_job_sync(job_id: str) -> None:
                 status["progress"]["processed"] += 1
                 write_json(status_path(job_id), status)
 
-        def _run_pharmacy_worker(pharmacy_code: str) -> None:
+        task_pairs: list[tuple[str, str]] = []
+        for pharmacy_code in pharmacy_codes:
+            for city_name in _cities_for_pharmacy(pharmacy_code):
+                task_pairs.append((pharmacy_code, city_name))
+
+        def _run_city_worker(pharmacy_code: str, city_name: str) -> None:
             local_driver = None
             local_farmacia24_parser = None
+            city_setup_error = ""
             try:
                 if pharmacy_code == "apteka_ru":
-                    local_driver = make_driver()
-                    recover_to_home(local_driver)
-                    close_modal_if_any(local_driver, timeout=2)
-                    select_city(local_driver, selected_city, timeout=8)
+                    setup_error: Exception | None = None
+                    for _ in range(3):
+                        try:
+                            if local_driver is not None:
+                                try:
+                                    local_driver.quit()
+                                except Exception:
+                                    pass
+                            local_driver = make_driver()
+                            recover_to_home(local_driver)
+                            close_modal_if_any(local_driver, timeout=2)
+                            select_city(local_driver, city_name, timeout=8)
+                            setup_error = None
+                            break
+                        except Exception as exc:
+                            setup_error = exc
+                            time.sleep(0.5)
+                    if setup_error is not None:
+                        city_setup_error = f"Не удалось подготовить браузер для города '{city_name}': {setup_error}"
+                        job_log(job_id, f"Аптека: {pharmacy_code} | Город: {city_name if city_name else '—'} | Ошибка setup: {city_setup_error}")
                 elif pharmacy_code == "farmacia24":
                     local_farmacia24_parser = Farmacia24Parser()
 
@@ -177,11 +218,34 @@ def _process_job_sync(job_id: str) -> None:
                     q_manufacturer = q_payload["manufacturer"]
 
                     if not q_name:
-                        _apply_outcome(pharmacy_code, "not_found", [], q_payload)
+                        _apply_outcome(pharmacy_code, city_name, "not_found", [], q_payload)
                         time.sleep(PARSE_PAUSE)
                         continue
 
-                    query_parts = [f"Аптека: {pharmacy_code}", f"Название: {q_name}"]
+                    if city_setup_error:
+                        _apply_outcome(
+                            pharmacy_code,
+                            city_name,
+                            "failed",
+                            [
+                                {
+                                    "source_pharmacy": pharmacy_code,
+                                    "raw": raw,
+                                    "city": city_name,
+                                    "input_name": q_name,
+                                    "input_barcode": q_barcode,
+                                    "input_product_code": q_product_code,
+                                    "input_qty": q_qty,
+                                    "input_dosage": q_dosage,
+                                    "message": city_setup_error,
+                                }
+                            ],
+                            q_payload,
+                        )
+                        time.sleep(PARSE_PAUSE)
+                        continue
+
+                    query_parts = [f"Аптека: {pharmacy_code}", f"Город: {city_name if city_name else '—'}", f"Название: {q_name}"]
                     query_parts.append(f"RAW: {raw}" if raw else "RAW: —")
                     query_parts.append(f"Кол-во: {q_qty}" if q_qty is not None else "Кол-во: —")
                     query_parts.append(f"Дозировка: {q_dosage}" if q_dosage else "Дозировка: —")
@@ -215,6 +279,7 @@ def _process_job_sync(job_id: str) -> None:
                                 job_id,
                                 " | ".join(
                                     [
+                                        f"Город: {city_name if city_name else '—'}",
                                         f"Запрос: {q_name}",
                                         f"RAW: {raw if raw else '—'}",
                                         f"Кол-во: {q_qty if q_qty is not None else '—'}",
@@ -237,7 +302,7 @@ def _process_job_sync(job_id: str) -> None:
                                 ),
                                 ParseContext(
                                     job_id=job_id,
-                                    city=selected_city,
+                                    city=city_name,
                                     timeout=PARSE_TIMEOUT,
                                     max_retries=PARSE_MAX_RETRIES,
                                 ),
@@ -251,6 +316,7 @@ def _process_job_sync(job_id: str) -> None:
                                     "price": item.price,
                                     "href": item.href,
                                     "raw": raw,
+                                    "city": city_name,
                                     "input_name": q_name,
                                     "input_barcode": q_barcode,
                                     "input_product_code": q_product_code,
@@ -275,6 +341,7 @@ def _process_job_sync(job_id: str) -> None:
                                         "price": "",
                                         "href": "",
                                         "raw": raw,
+                                        "city": city_name,
                                         "input_name": q_name,
                                         "input_barcode": q_barcode,
                                         "input_product_code": q_product_code,
@@ -287,6 +354,7 @@ def _process_job_sync(job_id: str) -> None:
                                 items = [{
                                     "source_pharmacy": "farmacia24",
                                     "raw": raw,
+                                    "city": city_name,
                                     "input_name": q_name,
                                     "input_barcode": q_barcode,
                                     "input_product_code": q_product_code,
@@ -323,6 +391,7 @@ def _process_job_sync(job_id: str) -> None:
                             {
                                 "source_pharmacy": pharmacy_code,
                                 "raw": raw,
+                                "city": city_name,
                                 "input_name": q_name,
                                 "input_barcode": q_barcode,
                                 "input_product_code": q_product_code,
@@ -332,7 +401,11 @@ def _process_job_sync(job_id: str) -> None:
                             }
                         ]
 
-                    _apply_outcome(pharmacy_code, outcome, items, q_payload)
+                    if items:
+                        for item in items:
+                            item.setdefault("city", city_name)
+
+                    _apply_outcome(pharmacy_code, city_name, outcome, items, q_payload)
 
                     if cancel_requested():
                         return
@@ -349,21 +422,21 @@ def _process_job_sync(job_id: str) -> None:
                     except Exception:
                         pass
 
-        with ThreadPoolExecutor(max_workers=len(pharmacy_codes)) as executor:
-            future_by_code = {
-                executor.submit(_run_pharmacy_worker, pharmacy_code): pharmacy_code
-                for pharmacy_code in pharmacy_codes
+        with ThreadPoolExecutor(max_workers=max(1, len(task_pairs))) as executor:
+            future_by_task = {
+                executor.submit(_run_city_worker, pharmacy_code, city_name): (pharmacy_code, city_name)
+                for pharmacy_code, city_name in task_pairs
             }
-            for future in as_completed(future_by_code):
-                pharmacy_code = future_by_code[future]
+            for future in as_completed(future_by_task):
+                pharmacy_code, city_name = future_by_task[future]
                 try:
                     future.result()
                 except Exception as exc:
-                    job_log(job_id, f"Аптека: {pharmacy_code} | Ошибка worker: {exc}")
+                    job_log(job_id, f"Аптека: {pharmacy_code} | Город: {city_name if city_name else '—'} | Ошибка worker: {exc}")
 
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items})
 
-        _write_result_csv(job_id, all_items, status, selected_city, pharmacy_codes)
+        _write_result_csv(job_id, all_items, status, city_label, pharmacy_codes)
 
         if cancel_requested():
             finalize_cancel()
@@ -383,7 +456,7 @@ def _process_job_sync(job_id: str) -> None:
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "error": str(e)})
 
         try:
-            _write_result_csv(job_id, all_items, status, selected_city, pharmacy_codes)
+            _write_result_csv(job_id, all_items, status, city_label, pharmacy_codes)
         except Exception:
             pass
 
