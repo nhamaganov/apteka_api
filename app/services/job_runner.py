@@ -25,11 +25,19 @@ async def process_job(job_id: str) -> None:
 def _process_job_sync(job_id: str) -> None:
     """Запускает полный цикл парсинга для одной задачи."""
     status = read_json(status_path(job_id))
+
+    def _persist_status() -> None:
+        """Пишет статус, не теряя внешний флаг отмены."""
+        current_status = read_json(status_path(job_id))
+        if current_status.get("cancelled"):
+            status["cancelled"] = True
+        write_json(status_path(job_id), status)
+
     status["status"] = "running"
     status["started_at"] = now_iso()
     status["finished_at"] = None
     status["error"] = None
-    write_json(status_path(job_id), status)
+    _persist_status()
 
     queries_data = read_json(queries_path(job_id))
     queries = queries_data.get("queries", [])
@@ -60,7 +68,7 @@ def _process_job_sync(job_id: str) -> None:
     total = len(queries) * sum(len(_cities_for_pharmacy(pharmacy_code)) for pharmacy_code in pharmacy_codes)
 
     status["progress"]["total"] = total
-    write_json(status_path(job_id), status)
+    _persist_status()
 
     all_items: List[Dict] = []
 
@@ -70,7 +78,7 @@ def _process_job_sync(job_id: str) -> None:
     def finalize_cancel() -> None:
         status["status"] = "cancelled"
         status["finished_at"] = now_iso()
-        write_json(status_path(job_id), status)
+        _persist_status()
 
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "cancelled": True})
         _write_result_csv(job_id, all_items, status, city_label, pharmacy_codes)
@@ -167,7 +175,7 @@ def _process_job_sync(job_id: str) -> None:
                     status["progress"]["failed"] += 1
 
                 status["progress"]["processed"] += 1
-                write_json(status_path(job_id), status)
+                _persist_status()
 
         task_pairs: list[tuple[str, str]] = []
         for pharmacy_code in pharmacy_codes:
@@ -443,14 +451,14 @@ def _process_job_sync(job_id: str) -> None:
         
         status["status"] = "done"
         status["finished_at"] = now_iso()
-        write_json(status_path(job_id), status)
+        _persist_status()
 
     except Exception as e:
         status = read_json(status_path(job_id))
         status["status"] = "failed"
         status["finished_at"] = now_iso()
         status["error"] = str(e)
-        write_json(status_path(job_id), status)
+        _persist_status()
 
         write_json(result_path(job_id), {"job_id": job_id, "ready": True, "items": all_items, "error": str(e)})
 
