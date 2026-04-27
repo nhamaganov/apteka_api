@@ -113,7 +113,6 @@ def _process_job_sync(job_id: str) -> None:
         normalized_queries = [_build_query_payload(q) for q in queries]
 
         def _apply_outcome(pharmacy_code: str, city_name: str, outcome: str, items: list[Dict], q_payload: Dict) -> None:
-            q_name = q_payload["name"]
             q_qty = q_payload["qty"]
             q_dosage = q_payload["dosage"]
             q_manufacturer = q_payload["manufacturer"]

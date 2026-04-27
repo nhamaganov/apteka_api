@@ -361,7 +361,6 @@ class Farmacia24Parser:
     def _set_search_input_value(
         self,
         driver: webdriver.Chrome,
-        search_input,
         expected_value: str,
         timeout: int,
         retries: int = 3,

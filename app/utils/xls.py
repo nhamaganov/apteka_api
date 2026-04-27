@@ -298,6 +298,7 @@ def build_enriched_xlsx(
         product_code_col = None
 
     main_extra_headers = [
+        "Найденный товар",
         "Цена",
         "Отклонение от базовой цены",
         "Отклонение от закупочной цены",
@@ -369,22 +370,6 @@ def build_enriched_xlsx(
     for code in pharmacy_codes:
         for city_value in city_list_by_code.get(code, []):
             block_keys.append((code, city_value))
-
-    found_name_col_by_block: dict[tuple[str, str], int] = {}
-    found_names_start_col = header_col + 1
-    for idx, block_key in enumerate(block_keys):
-        code, city_value = block_key
-        col_idx = found_names_start_col + idx
-        df.insert(col_idx, f"__found_name__{code}__{city_value}", None)
-        found_name_col_by_block[block_key] = col_idx
-        df.iat[header_row, col_idx] = _pharmacy_title(code, city_value)
-
-    inserted_found_name_cols = len(block_keys)
-    if inserted_found_name_cols:
-        if barcode_col is not None and barcode_col > header_col:
-            barcode_col += inserted_found_name_cols
-        if product_code_col is not None and product_code_col > header_col:
-            product_code_col += inserted_found_name_cols
 
     indexes_by_block: dict[tuple[str, str], dict[str, dict[str, list[dict]]]] = {}
     for block_key in block_keys:
@@ -557,13 +542,11 @@ def build_enriched_xlsx(
                 no_info_rows_by_block[block_key].add(r)
 
             block_start = block_start_by_block[block_key]
-            found_name_col = found_name_col_by_block.get(block_key)
-            if found_name_col is not None:
-                df.iat[r, found_name_col] = _display_found_title(code, item)
-            df.iat[r, block_start] = parsed_price
-            df.iat[r, block_start + 1] = ""
+            df.iat[r, block_start] = _display_found_title(code, item)
+            df.iat[r, block_start + 1] = parsed_price
             df.iat[r, block_start + 2] = ""
             df.iat[r, block_start + 3] = ""
+            df.iat[r, block_start + 4] = ""
 
             message_text = str(item.get("message", ""))
             message_lower = message_text.lower()
@@ -637,7 +620,7 @@ def build_enriched_xlsx(
     content_alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
 
     price_numeric_columns = {
-        *(block_start_by_block[block_key] for block_key in block_keys),
+        *(block_start_by_block[block_key] + 1 for block_key in block_keys),
         *(idx for idx in [base_price_col, purchase_price_col, site_price_col] if idx is not None),
     }
 
@@ -663,11 +646,11 @@ def build_enriched_xlsx(
     for block_key in block_keys:
         code, _ = block_key
         block_start = block_start_by_block[block_key]
-        parsed_price_letter = get_column_letter(block_start + 1)
+        parsed_price_letter = get_column_letter(block_start + 2)
 
         if base_price_col is not None:
             base_price_letter = get_column_letter(base_price_col + 1)
-            base_markup_col = block_start + 2
+            base_markup_col = block_start + 3
             for row_idx in base_markup_formula_rows_by_block[block_key]:
                 excel_row = row_idx + 1 + ROW_OFFSET
                 base_markup_cell = ws.cell(row=excel_row, column=base_markup_col)
@@ -679,7 +662,7 @@ def build_enriched_xlsx(
 
         if purchase_price_col is not None:
             purchase_price_letter = get_column_letter(purchase_price_col + 1)
-            purchase_markup_col = block_start + 3
+            purchase_markup_col = block_start + 4
             for row_idx in purchase_markup_formula_rows_by_block[block_key]:
                 excel_row = row_idx + 1 + ROW_OFFSET
                 purchase_markup_cell = ws.cell(row=excel_row, column=purchase_markup_col)
@@ -691,7 +674,7 @@ def build_enriched_xlsx(
 
         if site_price_col is not None:
             site_price_letter = get_column_letter(site_price_col + 1)
-            site_markup_col = block_start + 4
+            site_markup_col = block_start + 5
             for row_idx in site_markup_formula_rows_by_block[block_key]:
                 excel_row = row_idx + 1 + ROW_OFFSET
                 site_markup_cell = ws.cell(row=excel_row, column=site_markup_col)
@@ -701,28 +684,20 @@ def build_enriched_xlsx(
                 )
                 site_markup_cell.number_format = '0.00%'
 
-        found_name_col = found_name_col_by_block.get(block_key)
-
         for row_idx in warning_rows_by_block[block_key]:
             if row_idx in no_info_rows_by_block[block_key]:
                 continue
             excel_row = row_idx + 1 + ROW_OFFSET
             for col_idx in range(block_start, block_start + len(main_extra_headers)):
                 ws.cell(row=excel_row, column=col_idx + 1).fill = warning_fill
-            if found_name_col is not None:
-                ws.cell(row=excel_row, column=found_name_col + 1).fill = warning_fill
 
         for row_idx in no_info_rows_by_block[block_key]:
             excel_row = row_idx + 1 + ROW_OFFSET
             for col_idx in range(block_start, block_start + len(main_extra_headers)):
                 ws.cell(row=excel_row, column=col_idx + 1).fill = empty_fill
-            if found_name_col is not None:
-                ws.cell(row=excel_row, column=found_name_col + 1).fill = empty_fill
 
     source_min_col = 1
     source_max_col = insert_col
-    parsed_min_col = insert_col + 1
-    parsed_max_col = insert_col + parsed_block_width
 
     ws.merge_cells(
         start_row=1,
