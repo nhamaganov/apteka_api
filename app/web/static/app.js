@@ -29,11 +29,17 @@ function setDownload(jobId, enabled) {
   }
 }
 
+function setVisible(id, visible) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle("hidden", !visible);
+}
+
 function render(st, ui = {}) {
   const finished = (st.status === "done" || st.status === "failed" || st.status === "cancelled");
   const cancelRequested = Boolean(st.cancelled);
   const cancelPending = (Boolean(ui.cancelPending) || cancelRequested) && !finished;
-
+  setVisible("cancelLoader", cancelPending);
 
   const cancelBtn = document.getElementById("cancelBtn");
   if (cancelBtn) {
@@ -155,24 +161,56 @@ async function loop() {
 
   setDownload(jobId, false);
   const cancelBtn = document.getElementById("cancelBtn");
+  const modalEl = document.getElementById("cancelConfirmModal");
+  const modalConfirmBtn = document.getElementById("cancelConfirmYes");
+  const modalDeclineBtn = document.getElementById("cancelConfirmNo");
+
+  const openConfirmModal = () => setVisible("cancelConfirmModal", true);
+  const closeConfirmModal = () => setVisible("cancelConfirmModal", false);
+
   if (cancelBtn) {
-    cancelBtn.addEventListener("click", async () => {
+    cancelBtn.addEventListener("click", () => {
+      if (cancelPending) return;
+      openConfirmModal();
+    });
+  }
+
+  if (modalDeclineBtn) {
+    modalDeclineBtn.addEventListener("click", () => {
+      closeConfirmModal();
+    });
+  }
+
+  if (modalEl) {
+    modalEl.addEventListener("click", (event) => {
+      if (event.target === modalEl) {
+        closeConfirmModal();
+      }
+    });
+  }
+
+  if (modalConfirmBtn) {
+    modalConfirmBtn.addEventListener("click", async () => {
+      if (!cancelBtn) return;
+      closeConfirmModal();
       cancelPending = true;
       cancelBtn.disabled = true;
       cancelBtn.setAttribute("aria-disabled", "true");
       cancelBtn.classList.add("disabled");
       cancelBtn.textContent = "Останавливаю...";
+      setVisible("cancelLoader", true);
       try {
         await cancelJob(jobId);
       } catch (e) {
         cancelPending = false;
+        setVisible("cancelLoader", false);
         cancelBtn.disabled = false;
         cancelBtn.setAttribute("aria-disabled", "false");
         cancelBtn.classList.remove("disabled");
         cancelBtn.textContent = "Остановить";
         alert("Не удалось остановить: " + e);
       }
-    })
+    });
   }
 
   while (!stopped) {

@@ -46,6 +46,24 @@
     </div>
   </div>
 
+  <div id="cancelConfirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="cancelConfirmTitle">
+    <div class="modal-card">
+      <h2 id="cancelConfirmTitle">Подтверждение</h2>
+      <p>Вы уверены, что хотите остановить?</p>
+      <div class="modal-actions">
+        <button id="cancelConfirmNo" class="btn" type="button">Нет</button>
+        <button id="cancelConfirmYes" class="btn stop" type="button">Да, остановить</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cancelLoader" class="fullscreen-loader hidden" aria-live="polite" aria-busy="true">
+    <div class="fullscreen-loader-box">
+      <div class="spinner" aria-hidden="true"></div>
+      <div class="fullscreen-loader-text">Останавливаем парсинг, пожалуйста подождите…</div>
+    </div>
+  </div>
+  
   <script>
     window.JOB_ID = "{{ job_id }}";
   </script>
