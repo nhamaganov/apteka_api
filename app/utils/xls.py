@@ -304,6 +304,11 @@ def build_enriched_xlsx(
         "Отклонение от закупочной цены",
         "Отклонение от нашего сайта",
     ]
+    FOUND_TITLE_OFFSET = 0
+    PRICE_OFFSET = 1
+    BASE_MARKUP_OFFSET = 2
+    PURCHASE_MARKUP_OFFSET = 3
+    SITE_MARKUP_OFFSET = 4
     apteka_extra_headers = [
         "Оригинальные названия",
         "Найденный товар",
@@ -542,11 +547,11 @@ def build_enriched_xlsx(
                 no_info_rows_by_block[block_key].add(r)
 
             block_start = block_start_by_block[block_key]
-            df.iat[r, block_start] = _display_found_title(code, item)
-            df.iat[r, block_start + 1] = parsed_price
-            df.iat[r, block_start + 2] = ""
-            df.iat[r, block_start + 3] = ""
-            df.iat[r, block_start + 4] = ""
+            df.iat[r, block_start + FOUND_TITLE_OFFSET] = _display_found_title(code, item)
+            df.iat[r, block_start + PRICE_OFFSET] = parsed_price
+            df.iat[r, block_start + BASE_MARKUP_OFFSET] = ""
+            df.iat[r, block_start + PURCHASE_MARKUP_OFFSET] = ""
+            df.iat[r, block_start + SITE_MARKUP_OFFSET] = ""
 
             message_text = str(item.get("message", ""))
             message_lower = message_text.lower()
@@ -620,7 +625,7 @@ def build_enriched_xlsx(
     content_alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
 
     price_numeric_columns = {
-        *(block_start_by_block[block_key] + 1 for block_key in block_keys),
+        *(block_start_by_block[block_key] + PRICE_OFFSET for block_key in block_keys),
         *(idx for idx in [base_price_col, purchase_price_col, site_price_col] if idx is not None),
     }
 
@@ -646,11 +651,11 @@ def build_enriched_xlsx(
     for block_key in block_keys:
         code, _ = block_key
         block_start = block_start_by_block[block_key]
-        parsed_price_letter = get_column_letter(block_start + 2)
+        parsed_price_letter = get_column_letter(block_start + PRICE_OFFSET + 1)
 
         if base_price_col is not None:
             base_price_letter = get_column_letter(base_price_col + 1)
-            base_markup_col = block_start + 3
+            base_markup_col = block_start + BASE_MARKUP_OFFSET + 1
             for row_idx in base_markup_formula_rows_by_block[block_key]:
                 excel_row = row_idx + 1 + ROW_OFFSET
                 base_markup_cell = ws.cell(row=excel_row, column=base_markup_col)
@@ -662,7 +667,7 @@ def build_enriched_xlsx(
 
         if purchase_price_col is not None:
             purchase_price_letter = get_column_letter(purchase_price_col + 1)
-            purchase_markup_col = block_start + 4
+            purchase_markup_col = block_start + PURCHASE_MARKUP_OFFSET + 1
             for row_idx in purchase_markup_formula_rows_by_block[block_key]:
                 excel_row = row_idx + 1 + ROW_OFFSET
                 purchase_markup_cell = ws.cell(row=excel_row, column=purchase_markup_col)
@@ -674,7 +679,7 @@ def build_enriched_xlsx(
 
         if site_price_col is not None:
             site_price_letter = get_column_letter(site_price_col + 1)
-            site_markup_col = block_start + 5
+            site_markup_col = block_start + SITE_MARKUP_OFFSET + 1
             for row_idx in site_markup_formula_rows_by_block[block_key]:
                 excel_row = row_idx + 1 + ROW_OFFSET
                 site_markup_cell = ws.cell(row=excel_row, column=site_markup_col)
