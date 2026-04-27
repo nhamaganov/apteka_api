@@ -212,10 +212,7 @@ class Farmacia24Parser:
         if not normalized_query:
             raise ValueError("Farmacia24 search query (name) is empty")
 
-        search_input = self._wait(driver, timeout).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, ".header-search__input"))
-        )
-        self._set_search_input_value(driver, search_input, normalized_query, timeout)
+        self._set_search_input_value(driver, normalized_query, timeout)
         self._human_delay()
 
         previous_card = self._first_visible_result_card(driver)
@@ -288,11 +285,8 @@ class Farmacia24Parser:
         if not normalized_query:
             return False, "пустой поисковый запрос"
 
-        search_input = self._wait(driver, timeout).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, ".header-search__input"))
-        )
         prefix_query = self._build_dropdown_query_prefix(normalized_query)
-        self._set_search_input_value(driver, search_input, prefix_query, timeout, retries=2)
+        self._set_search_input_value(driver, prefix_query, timeout, retries=2)
 
         dropdown_items = self._wait_dropdown_items_or_stable_empty(driver, timeout)
         if not dropdown_items:
