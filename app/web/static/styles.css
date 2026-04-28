@@ -791,6 +791,15 @@ button.btn-sm:disabled:hover {
   color: #f8fafc;
 }
 
+.fullscreen-loader-hint {
+  margin-top: 4px;
+  max-width: 420px;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: center;
+  color: #cbd5e1;
+}
+
 .spinner {
   width: 30px;
   height: 30px;

@@ -81,7 +81,7 @@ function render(st, ui = {}) {
 
   const done = (st.status === "done" || st.status === "failed" || st.status === "cancelled");
   setDownload(window.JOB_ID, done);
-  return done;
+  return { done, cancelPending };
 }
 
 async function fetchLog(jobId, tail=200) {
@@ -158,6 +158,8 @@ async function loop() {
   const jobId = window.JOB_ID;
   let stopped = false;
   let cancelPending = false;
+  let cancelLoaderShownAt = null;
+  const cancelHintDelayMs = 10_000;
 
   setDownload(jobId, false);
   const cancelBtn = document.getElementById("cancelBtn");
@@ -199,11 +201,15 @@ async function loop() {
       cancelBtn.classList.add("disabled");
       cancelBtn.textContent = "Останавливаю...";
       setVisible("cancelLoader", true);
+      setVisible("cancelLoaderHint", false);
+      cancelLoaderShownAt = Date.now();
       try {
         await cancelJob(jobId);
       } catch (e) {
         cancelPending = false;
+        cancelLoaderShownAt = null;
         setVisible("cancelLoader", false);
+        setVisible("cancelLoaderHint", false);
         cancelBtn.disabled = false;
         cancelBtn.setAttribute("aria-disabled", "false");
         cancelBtn.classList.remove("disabled");
@@ -216,7 +222,17 @@ async function loop() {
   while (!stopped) {
     try {
       const st = await fetchStatus(jobId);
-      const done = render(st, { cancelPending });
+      const { done, cancelPending: isCancelPending } = render(st, { cancelPending });
+      if (isCancelPending) {
+        if (cancelLoaderShownAt === null) {
+          cancelLoaderShownAt = Date.now();
+        }
+        const showHint = (Date.now() - cancelLoaderShownAt) >= cancelHintDelayMs;
+        setVisible("cancelLoaderHint", showHint);
+      } else {
+        cancelLoaderShownAt = null;
+        setVisible("cancelLoaderHint", false);
+      }
       const logPayload = await fetchLog(jobId, 200);
       renderLog(logPayload)
       if (done) break;
