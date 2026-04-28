@@ -803,3 +803,52 @@ button.btn-sm:disabled:hover {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+.upload-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.step-item {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e3a8a;
+  background: rgba(59, 130, 246, 0.10);
+  border: 1px solid rgba(59, 130, 246, 0.20);
+  border-radius: 999px;
+}
+
+.recent-tasks {
+  margin-top: 16px;
+}
+
+.recent-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.recent-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  font-size: 12px;
+  color: #1e3a8a;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.24);
+  border-radius: 999px;
+}

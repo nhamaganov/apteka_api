@@ -19,9 +19,14 @@
 <body>
   {% include "_header.html" %}
   <div class="wrap">
-    <h1>Загрузка файла</h1>
+    <h1>Создать новую задачу</h1>
 
     <div class="box upload-panel">
+      <div class="upload-steps" aria-label="Шаги запуска парсинга">
+        <span class="step-item">1. Загрузите файл</span>
+        <span class="step-item">2. Выберите аптеки и города</span>
+        <span class="step-item">3. Запустите парсинг</span>
+      </div>
       <form class="upload-form" action="/upload" method="post" enctype="multipart/form-data">
         <input id="uploadFile" class="file-input" type="file" name="file" accept=".xls,.xlsx,.ods" required />
         <label for="uploadFile" class="btn file-picker">Выбрать файл</label>
@@ -55,9 +60,18 @@
       <p class="hint">Для «Губернских аптек» город всегда фиксирован: Красноярск.</p>
     </div>
 
-    <h2>Последние задачи</h2>
-    {% if jobs and jobs|length > 0 %}
-      <table class="tbl">
+    <section class="recent-tasks" id="recentTasks">
+      <div class="recent-summary">
+        <span class="recent-title">Последние задачи</span>
+        {% if jobs and jobs|length > 0 %}
+          <span class="recent-count">{{ jobs|length }}</span>
+        {% else %}
+          <span class="recent-count">0</span>
+        {% endif %}
+      </div>
+
+      {% if jobs and jobs|length > 0 %}
+        <table class="tbl">
         <thead>
           <tr>
             <th>Название</th>
@@ -176,9 +190,10 @@
           {% endfor %}
         </tbody>        
       </table>
-    {% else %}
-      <p class="hint">Пока нет задач.</p>
-    {% endif %}
+      {% else %}
+        <p class="hint">Пока нет задач.</p>
+      {% endif %}
+  </details>
 
     <p class="hint">
       После загрузки откроется страница с прогрессом. По завершении можно скачать результат.

@@ -181,6 +181,7 @@ def _process_job_sync(job_id: str) -> None:
         for pharmacy_code in pharmacy_codes:
             for city_name in _cities_for_pharmacy(pharmacy_code):
                 task_pairs.append((pharmacy_code, city_name))
+        task_pairs.sort(key=lambda pair: (0 if pair[0] == "farmacia24" else 1))
 
         def _run_city_worker(pharmacy_code: str, city_name: str) -> None:
             local_driver = None
@@ -429,7 +430,8 @@ def _process_job_sync(job_id: str) -> None:
                     except Exception:
                         pass
 
-        with ThreadPoolExecutor(max_workers=max(1, len(task_pairs))) as executor:
+        max_city_workers = min(2, max(1, len(task_pairs)))
+        with ThreadPoolExecutor(max_workers=max_city_workers) as executor:
             future_by_task = {
                 executor.submit(_run_city_worker, pharmacy_code, city_name): (pharmacy_code, city_name)
                 for pharmacy_code, city_name in task_pairs
