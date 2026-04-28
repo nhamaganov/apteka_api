@@ -29,7 +29,11 @@
         <div class="city-multiselect">
           <span class="city-label">Города:</span>
           <details id="cityDropdown" class="city-dropdown">
-            <summary id="citySummary" class="city-select">Иркутск</summary>
+            <summary class="city-select" aria-label="Выбор городов">
+              <span class="city-select-title">Выбрать города</span>
+              <span id="citySummary" class="city-select-value">Иркутск</span>
+              <span class="city-select-hint">Нажмите, чтобы открыть список</span>
+            </summary>
             <div class="city-options">
               <label><input class="city-checkbox" type="checkbox" name="cities" value="Иркутск" checked> Иркутск</label>
               <label><input class="city-checkbox" type="checkbox" name="cities" value="Чита"> Чита</label>
@@ -208,7 +212,7 @@
         .map((checkbox) => checkbox.value);
 
       if (selectedCities.length === 0) {
-        citySummary.textContent = "Выберите город";
+        citySummary.textContent = "Ничего не выбрано";
       } else if (selectedCities.length <= 2) {
         citySummary.textContent = selectedCities.join(", ");
       } else {

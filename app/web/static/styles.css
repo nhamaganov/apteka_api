@@ -405,13 +405,53 @@ button.btn-sm:disabled:hover {
 }
 
 .city-select {
-  min-width: 150px;
-  padding: 10px 12px;
+  position: relative;
+  min-width: 230px;
+  padding: 10px 38px 10px 12px;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: #fff;
   color: var(--text);
   font-size: 14px;
+  display: grid;
+  gap: 2px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.city-select::after {
+  content: "▾";
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  color: #64748b;
+  font-size: 14px;
+}
+
+.city-select-title {
+  font-size: 12px;
+  line-height: 1.2;
+  color: #64748b;
+}
+
+.city-select-value {
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.city-select-hint {
+  font-size: 11px;
+  line-height: 1.2;
+  color: #94a3b8;
+}
+
+.city-dropdown[open] .city-select {
+  border-color: rgba(37, 99, 235, 0.5);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.city-dropdown[open] .city-select::after {
+  content: "▴";
 }
 
 .city-multiselect {
@@ -436,7 +476,7 @@ button.btn-sm:disabled:hover {
   z-index: 5;
   top: calc(100% + 6px);
   left: 0;
-  min-width: 220px;
+  min-width: 230px;
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 12px;
